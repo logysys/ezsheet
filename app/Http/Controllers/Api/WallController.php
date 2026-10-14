@@ -1401,6 +1401,12 @@ class WallController extends Controller
     public function uploadMedia(Request $request, string $id)
     {
         $targetId = $request->input('wall_id') ?: $id;
+
+        // If target is ezsheet (draft mode before wall publication), delegate to uploadEzsheetFile
+        if ($targetId === 'ezsheet' || $id === 'ezsheet') {
+            return $this->uploadEzsheetFile($request);
+        }
+
         $wall = $this->wall((string) $targetId);
 
         if (!$wall) {
