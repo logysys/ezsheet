@@ -637,6 +637,14 @@ function parseOne(raw){
     if(/^<iframe\b[^>]*>\s*<\/iframe>$/i.test(raw)){const u=httpUrl(src);if(u)return normalize({_raw:raw,type:'web',url:u});}
     return normalize({_raw:raw,type:'html',html:raw});
   }
+  if(/^data:image\/[a-z0-9+.-]+;base64,/i.test(raw)){
+    const html='<div style="margin:0;background:#fff;display:flex;align-items:center;justify-content:center;min-height:160px;overflow:hidden;border-radius:8px"><img src="'+esc(raw)+'" alt="Image" style="display:block;width:100%;height:auto;max-height:100%;object-fit:contain" /></div>';
+    return normalize({_raw:raw,type:'html',html:html,pic:true,w:340,h:260});
+  }
+  if(/^\/upload\S+\.(png|jpe?g|gif|webp|svg|bmp|avif)$/i.test(raw)){
+    const html='<div style="margin:0;background:#fff;display:flex;align-items:center;justify-content:center;min-height:160px;overflow:hidden;border-radius:8px"><img src="'+esc(raw)+'" alt="Image" style="display:block;width:100%;height:auto;max-height:100%;object-fit:contain" /></div>';
+    return normalize({_raw:raw,type:'html',html:html,pic:true,w:340,h:260});
+  }
   const yt=raw.match(YT);if(yt)return normalize({_raw:raw,type:'youtube',id:yt[1],url:raw});
   let s=raw;
   let isPotentialUrl=false;
@@ -650,8 +658,15 @@ function parseOne(raw){
     const u=httpUrl(s);
     if(u){
       /* 直接指向 .glb／.gltf／.stl／.obj 的 https 網址 → 3D 卡（對方主機要允許 CORS） */
-      try{const x=new URL(u);if(x.protocol==='https:'&&M3D_EXT.test(x.pathname))
-        return normalize({_raw:raw,type:'model',mdl:{u,e:modelExt(x.pathname),n:decodeURIComponent(x.pathname.split('/').pop())}});}catch(e){}
+      try{
+        const x=new URL(u);
+        if(x.protocol==='https:'&&M3D_EXT.test(x.pathname))
+          return normalize({_raw:raw,type:'model',mdl:{u,e:modelExt(x.pathname),n:decodeURIComponent(x.pathname.split('/').pop())}});
+        if(/\.(png|jpe?g|gif|webp|svg|bmp|avif)$/i.test(x.pathname)){
+          const html='<div style="margin:0;background:#fff;display:flex;align-items:center;justify-content:center;min-height:160px;overflow:hidden;border-radius:8px"><img src="'+esc(u)+'" alt="Image" style="display:block;width:100%;height:auto;max-height:100%;object-fit:contain" /></div>';
+          return normalize({_raw:raw,type:'html',html:html,pic:true,w:340,h:260});
+        }
+      }catch(e){}
       return normalize({_raw:raw,type:'web',url:u});
     }
   }

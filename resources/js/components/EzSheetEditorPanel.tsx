@@ -27,15 +27,24 @@ export default function EzSheetEditorPanel({ value, onChange, onPush, onCancel, 
   const cbRef = useRef({ onChange, onPush, onCancel });
   cbRef.current = { onChange, onPush, onCancel };
   const [slots, setSlots] = useState<{ pics: HTMLElement | null; top: HTMLElement | null; media: HTMLElement | null }>({ pics: null, top: null, media: null });
+  const [isUploadingMedia, setIsUploadingMedia] = useState(false);
 
   const handleAddCards = (raws: string[], zone: string) => {
     if (!raws.length) return;
     const E = getEzSheetEditor();
-    let cur = value;
+    const curVal = (apiRef.current?.ta ? apiRef.current.ta.value : value) || '';
+    let cur = curVal;
     raws.forEach((r) => {
       const sep = zone === 'a' ? E.ZSEP : (zone === 'c' ? E.CSEP : E.SEP);
       cur = cur.trim() ? `${cur.trim()}\n${sep}\n${r}` : r;
     });
+    if (apiRef.current) {
+      apiRef.current.setValue(cur);
+      apiRef.current.count();
+      if (typeof apiRef.current.setTab === 'function') {
+        apiRef.current.setTab('sheet');
+      }
+    }
     cbRef.current.onChange(cur);
   };
 
@@ -88,14 +97,22 @@ export default function EzSheetEditorPanel({ value, onChange, onPush, onCancel, 
   useEffect(() => { if (apiRef.current) apiRef.current.setValue(value); }, [value]);
   useEffect(() => {
     const b = rootRef.current?.querySelector('[data-ezs="push"]') as HTMLButtonElement | null;
-    if (b) { b.textContent = pushLabel; b.disabled = !!pushDisabled; }
-  }, [pushLabel, pushDisabled, slots]);
+    if (b) {
+      if (isUploadingMedia) {
+        b.textContent = 'Uploading media...';
+        b.disabled = true;
+      } else {
+        b.textContent = pushLabel;
+        b.disabled = !!pushDisabled;
+      }
+    }
+  }, [pushLabel, pushDisabled, isUploadingMedia, slots]);
 
   return (
     <>
       <div className="ezs" ref={rootRef} data-testid="ezsheet-editor" />
       {slots.pics && pics ? createPortal(pics, slots.pics) : null}
-      {slots.media ? createPortal(media || <DefaultMediaUploadPane onAddCards={handleAddCards} />, slots.media) : null}
+      {slots.media ? createPortal(media || <DefaultMediaUploadPane onAddCards={handleAddCards} onUploadingChange={setIsUploadingMedia} />, slots.media) : null}
       {slots.top && top ? createPortal(top, slots.top) : null}
     </>
   );
@@ -115,10 +132,15 @@ interface MediaItem {
   cardBlock?: string;
 }
 
-function DefaultMediaUploadPane({ onAddCards }: { onAddCards: (raws: string[], zone: string) => void }) {
+function DefaultMediaUploadPane({ onAddCards, onUploadingChange }: { onAddCards: (raws: string[], zone: string) => void; onUploadingChange?: (uploading: boolean) => void }) {
   const [items, setItems] = useState<MediaItem[]>([]);
   const [showSupported, setShowSupported] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    const isUploading = items.some((it) => it.status === 'uploading');
+    onUploadingChange?.(isUploading);
+  }, [items, onUploadingChange]);
 
   const formatSize = (bytes: number) => {
     if (!bytes || bytes <= 0) return '0 B';
@@ -206,12 +228,21 @@ function DefaultMediaUploadPane({ onAddCards }: { onAddCards: (raws: string[], z
     fd.append('file', item.file);
     fd.append('wall_id', wallId);
 
-    xhr.open('POST', `/api/wall/${encodeURIComponent(wallId)}/media`, true);
+    const targetUrl = (wallId === 'ezsheet')
+      ? '/api/wall/upload-ezsheet-file'
+      : `/api/wall/${encodeURIComponent(wallId)}/media`;
+
+    xhr.open('POST', targetUrl, true);
     xhr.withCredentials = true;
+    xhr.timeout = 15000;
 
     try {
       const tok = localStorage.getItem('wall_owner');
       if (tok) xhr.setRequestHeader('x-wall-owner', tok);
+      const csrfMeta = document.querySelector('meta[name="csrf-token"]') as HTMLMetaElement | null;
+      if (csrfMeta?.content) {
+        xhr.setRequestHeader('X-CSRF-TOKEN', csrfMeta.content);
+      }
     } catch {}
     xhr.setRequestHeader('X-Requested-With', 'XMLHttpRequest');
 
@@ -236,6 +267,10 @@ function DefaultMediaUploadPane({ onAddCards }: { onAddCards: (raws: string[], z
     };
 
     xhr.onerror = () => {
+      fallbackLocal();
+    };
+
+    xhr.ontimeout = () => {
       fallbackLocal();
     };
 

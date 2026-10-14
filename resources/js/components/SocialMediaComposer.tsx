@@ -380,10 +380,24 @@ const SocialMediaComposer: React.FC<SocialMediaComposerProps> = ({
     setError(null);
     
     try {
+      let postContent = content;
+      if (effectiveFormat === 'ezsheet' && mediaFiles.length > 0) {
+        const missingMedia = mediaFiles.filter((src) => !postContent.includes(src));
+        if (missingMedia.length > 0) {
+          const cardBlocks = missingMedia.map((src) =>
+            `<div style="margin:0;background:#fff;display:flex;align-items:center;justify-content:center;min-height:160px;overflow:hidden;border-radius:8px"><img src="${src}" alt="Attached Image" style="display:block;width:100%;height:auto;max-height:100%;object-fit:contain" /></div>`
+          );
+          const sep = '\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n';
+          postContent = postContent.trim()
+            ? `${postContent.trim()}${sep}${cardBlocks.join(sep)}`
+            : cardBlocks.join(sep);
+        }
+      }
+
       if (isEditMode && onUpdate && messageSlug) {
-        await onUpdate(content, mediaFiles, showCW ? cwText : null, messageSlug);
+        await onUpdate(postContent, mediaFiles, showCW ? cwText : null, messageSlug);
       } else if (onPost) {
-        await onPost(content, mediaFiles, showCW ? cwText : null, conversationId);
+        await onPost(postContent, mediaFiles, showCW ? cwText : null, conversationId);
       }
       
       if (!isEditMode) {
@@ -401,7 +415,7 @@ const SocialMediaComposer: React.FC<SocialMediaComposerProps> = ({
       setIsSubmitting(false);
       setTimeout(() => setError(null), 3000);
     }
-  }, [content, mediaFiles, showCW, cwText, isOverLimit, charCount, maxChars, onPost, onUpdate, conversationId, isEditMode, messageSlug]);
+  }, [content, mediaFiles, showCW, cwText, isOverLimit, charCount, maxChars, onPost, onUpdate, conversationId, isEditMode, messageSlug, effectiveFormat]);
 
   // Add emoji to content
   const addEmoji = useCallback((emoji: string) => {
@@ -560,15 +574,17 @@ const SocialMediaComposer: React.FC<SocialMediaComposerProps> = ({
               hint="Enter adds a ━━━━ divider | a boundary labels the block above it: ### = InfoMercial, === = Topic; whatever is left is Content | Shift+Enter: line break only | Tab: indent | Ctrl+Enter: post"
               pics={
                 <div className="flex flex-col gap-2 text-sm">
-                  <p className="text-xs opacity-70 m-0">Images are attached to this post (max 4). They show below the editor.</p>
-                  <button
-                    type="button"
-                    onClick={() => fileInputRef.current?.click()}
-                    disabled={mediaLimitReached}
-                    className="ezs-btn self-start"
-                  >
-                    {mediaLimitReached ? 'Maximum 4 images reached' : 'Choose images'}
-                  </button>
+                  <p className="text-xs opacity-70 m-0">Images attached here will appear as cards on your wall (max 4). They also show in the gallery below.</p>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <button
+                      type="button"
+                      onClick={() => fileInputRef.current?.click()}
+                      disabled={mediaLimitReached}
+                      className="ezs-btn self-start"
+                    >
+                      {mediaLimitReached ? 'Maximum 4 images reached' : 'Choose images'}
+                    </button>
+                  </div>
                 </div>
               }
             />

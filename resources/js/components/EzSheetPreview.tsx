@@ -677,8 +677,32 @@ const EzSheetPreview: React.FC<EzSheetPreviewProps> = ({
     // Server cards are already in display order; never re-sort them here.
     if (activeCards && activeCards.length > 0) {
       list = databaseCardsToList(activeCards);
+      const trimmed = String(content || '').trim();
+      if (trimmed) {
+        const blocks = splitBlocks(trimmed);
+        for (const b of blocks) {
+          const block = b.trim();
+          if (!block || b === '__ZONE_C__' || b === '__ZONE_A__') continue;
+          const it = parseOneBlock(block);
+          if (it && it.type === 'html' && /<img\b/i.test(it.html || '')) {
+            const m = (it.html.match(/<img[^>]+src=["']([^"']+)["']/i) || [])[1];
+            if (m) {
+              const exists = list.some((existing) => {
+                const exRaw = existing._raw || existing.html || existing.url || '';
+                return exRaw.includes(m);
+              });
+              if (!exists) {
+                it.zone = 'b';
+                it.w = it.w || 340;
+                it.h = it.h || 260;
+                list.push(it);
+              }
+            }
+          }
+        }
+      }
     } else {
-      const trimmed = String(content).trim();
+      const trimmed = String(content || '').trim();
 
       const dataMatch = trimmed.match(
         /<script\s+id=["']wall-data["'][^>]*>([\s\S]*?)<\/script>/i
@@ -1960,10 +1984,19 @@ function startItemUpload(item){
   var wallId = window.WALL_ID || 'ezsheet';
   fd.append('wall_id', wallId);
 
-  xhr.open('POST', '/api/wall/' + encodeURIComponent(wallId) + '/media', true);
+  var targetUrl = (wallId === 'ezsheet')
+    ? '/api/wall/upload-ezsheet-file'
+    : '/api/wall/' + encodeURIComponent(wallId) + '/media';
+
+  xhr.open('POST', targetUrl, true);
   xhr.withCredentials = true;
+  xhr.timeout = 15000;
   var tok = (typeof WallCore !== 'undefined' && WallCore.ownerToken) ? WallCore.ownerToken() : '';
   if(tok) xhr.setRequestHeader('x-wall-owner', tok);
+  try {
+    var csrfMeta = document.querySelector('meta[name="csrf-token"]');
+    if (csrfMeta && csrfMeta.content) xhr.setRequestHeader('X-CSRF-TOKEN', csrfMeta.content);
+  } catch(e){}
   xhr.setRequestHeader('X-Requested-With', 'XMLHttpRequest');
 
   xhr.upload.onprogress = function(ev){
@@ -1989,6 +2022,11 @@ function startItemUpload(item){
   };
 
   xhr.onerror = function(){
+    item.xhr = null;
+    fallbackToLocal();
+  };
+
+  xhr.ontimeout = function(){
     item.xhr = null;
     fallbackToLocal();
   };
@@ -2351,6 +2389,16 @@ function parseOneBlock(raw: string): any | null {
     return { type: 'youtube', id: yt[1], url: raw, w: 340, h: 220, _raw: raw };
   }
 
+  if (/^data:image\/[a-z0-9+.-]+;base64,/i.test(raw)) {
+    const html = `<div style="margin:0;background:#fff;display:flex;align-items:center;justify-content:center;min-height:160px;overflow:hidden;border-radius:8px"><img src="${raw}" alt="Image" style="display:block;width:100%;height:auto;max-height:100%;object-fit:contain" /></div>`;
+    return { type: 'html', html, w: 340, h: 260, _raw: raw, pic: true };
+  }
+
+  if (/^\/upload\S+\.(png|jpe?g|gif|webp|svg|bmp|avif)$/i.test(raw)) {
+    const html = `<div style="margin:0;background:#fff;display:flex;align-items:center;justify-content:center;min-height:160px;overflow:hidden;border-radius:8px"><img src="${raw}" alt="Image" style="display:block;width:100%;height:auto;max-height:100%;object-fit:contain" /></div>`;
+    return { type: 'html', html, w: 340, h: 260, _raw: raw, pic: true };
+  }
+
   let s = raw;
   let isPotentialUrl = false;
   if (/^https?:\/\//i.test(s)) {
@@ -2369,6 +2417,10 @@ function parseOneBlock(raw: string): any | null {
             mdl: { u: u.href, e: u.pathname.toLowerCase().replace(/^.*\./, ''), n: decodeURIComponent(u.pathname.split('/').pop() || '') },
             w: 380, h: 285, _raw: raw,
           };
+        }
+        if (/\.(png|jpe?g|gif|webp|svg|bmp|avif)$/i.test(u.pathname)) {
+          const html = `<div style="margin:0;background:#fff;display:flex;align-items:center;justify-content:center;min-height:160px;overflow:hidden;border-radius:8px"><img src="${u.href}" alt="Image" style="display:block;width:100%;height:auto;max-height:100%;object-fit:contain" /></div>`;
+          return { type: 'html', html, w: 340, h: 260, _raw: raw, pic: true };
         }
         return { type: 'web', url: u.href, w: 340, h: 220, _raw: raw };
       }
