@@ -1188,6 +1188,10 @@ class UnifiedContentController extends Controller
      */
     public function uploadFile(Request $request)
     {
+        // EZ-REL-20261015-3-hotfix: logged-in + same-origin only.
+        if ($deny = \App\Support\SafeUpload::guard($request)) {
+            return $deny;
+        }
         $hasMultiple = $request->hasFile('files');
         $hasSingle = $request->hasFile('file');
 
@@ -1252,6 +1256,14 @@ class UnifiedContentController extends Controller
                 $extension = $fileItem->guessExtension() ?? 'bin';
             }
 
+            $sniff = \App\Support\SafeUpload::inspect($fileItem->getPathname());
+            $isHtml = in_array($mimeType, ['text/html', 'application/xhtml+xml'], true);
+            if (!is_array($sniff) && !($isHtml && !preg_match('/<\?(php|=)/i', (string) @file_get_contents($fileItem->getPathname(), false, null, 0, 1048576)))) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'File type not allowed for ' . $fileItem->getClientOriginalName() . ': ' . (is_string($sniff) ? $sniff : 'refused'),
+                ], 422);
+            }
             if (!in_array($mimeType, $allowedMimeTypes) && !in_array($extension, $allowedExtensions)) {
                 return response()->json([
                     'success' => false,
@@ -1346,11 +1358,9 @@ class UnifiedContentController extends Controller
                 $originalName = $file->getClientOriginalName();
                 $fileSize = $file->getSize();
                 $mimeType = $file->getMimeType();
-                $extension = strtolower($file->getClientOriginalExtension());
-
-                if (empty($extension)) {
-                    $extension = $file->guessExtension() ?? 'bin';
-                }
+                // EZ-REL-20261015-3-hotfix: extension from the detected type, never the client name.
+                $sniffed = \App\Support\SafeUpload::inspect($file->getPathname());
+                $extension = is_array($sniffed) ? $sniffed[1] : 'html';
 
                 // Get real path for image dimensions (if needed)
                 $realPath = $file->getRealPath();
@@ -3883,72 +3893,20 @@ class UnifiedContentController extends Controller
      */
     public function uploadWikiFile(Request $request)
     {
-        $validator = Validator::make($request->all(), [
-            'file' => 'required|file|max:204800', // max 200MB
-        ]);
-
-        if ($validator->fails()) {
-            return response()->json([
-                'success' => false,
-                'errors' => $validator->errors(),
-            ], 422);
+        // EZ-REL-20261015-3-hotfix: logged-in, same-origin, sniffed allow-list,
+        // server name + extension, stored only in public/upload/wiki/.
+        if ($deny = \App\Support\SafeUpload::guard($request)) {
+            return $deny;
         }
-
-        try {
-            $file = $request->file('file');
-            $originalName = $file->getClientOriginalName();
-            $extension = strtolower($file->getClientOriginalExtension());
-            if (!$extension) {
-                $extension = strtolower(pathinfo($originalName, PATHINFO_EXTENSION));
-            }
-
-            $userId = Auth::id() ?? 0;
-            $safeName = Str::slug(pathinfo($originalName, PATHINFO_FILENAME), '_');
-            if (empty($safeName)) {
-                $safeName = 'media';
-            }
-            $filename = 'wiki_' . ($userId ? 'user_' . $userId . '_' : '') . time() . '_' . Str::random(6) . '_' . $safeName . '.' . $extension;
-
-            $targetDir = public_path('upload/wiki');
-            if (!file_exists($targetDir)) {
-                @mkdir($targetDir, 0755, true);
-            }
-
-            $uploadsTargetDir = public_path('uploads/wiki');
-            if (!file_exists($uploadsTargetDir)) {
-                @mkdir($uploadsTargetDir, 0755, true);
-            }
-
-            $storageTargetDir = storage_path('app/public/upload/wiki');
-            if (!file_exists($storageTargetDir)) {
-                @mkdir($storageTargetDir, 0755, true);
-            }
-
-            $file->move($targetDir, $filename);
-
-            @copy($targetDir . '/' . $filename, $uploadsTargetDir . '/' . $filename);
-            if (file_exists($storageTargetDir)) {
-                @copy($targetDir . '/' . $filename, $storageTargetDir . '/' . $filename);
-            }
-
-            $publicUrl = '/upload/wiki/' . $filename;
-
-            return response()->json([
-                'success' => true,
-                'message' => 'File uploaded to upload/wiki successfully',
-                'url' => $publicUrl,
-                'filename' => $originalName,
-                'mime_type' => $file->getClientMimeType(),
-                'size' => $file->getSize(),
-            ]);
-
-        } catch (\Exception $e) {
-            Log::error('Wiki file upload error: ' . $e->getMessage());
-            return response()->json([
-                'success' => false,
-                'message' => 'Failed to upload Wiki file: ' . $e->getMessage(),
-            ], 500);
+        if (!$request->hasFile('file')) {
+            return response()->json(['success' => false, 'message' => 'No file provided.'], 422);
         }
+        $file = $request->file('file');
+        $res = \App\Support\SafeUpload::store($file, 'wiki');
+        if (!is_array($res)) {
+            return response()->json(['success' => false, 'message' => $res], 422);
+        }
+        return response()->json(['success' => true, 'message' => 'File uploaded', 'filename' => $file->getClientOriginalName()] + $res);
     }
 
     /**

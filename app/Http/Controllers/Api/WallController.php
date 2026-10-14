@@ -1,6 +1,8 @@
 <?php
 namespace App\Http\Controllers\Api;
 
+use App\Support\SafeUpload;
+
 use App\Http\Controllers\Controller;
 use App\Models\Wall;
 use App\Models\WallCard;
@@ -1398,239 +1400,30 @@ class WallController extends Controller
      * Byte-sniffing checks: reject HTML, SVG, md, zip, office files, executables and scripts.
      * Stored in public/upload/wall/<slug>/ under a server-generated name.
      */
-    /** item 15: sniffed MIME -> stored extension (whitelist). */
-    private const MEDIA_EXT = [
-        'image/jpeg' => 'jpg', 'image/png' => 'png', 'image/gif' => 'gif', 'image/webp' => 'webp',
-        'image/avif' => 'avif', 'image/bmp' => 'bmp', 'image/x-ms-bmp' => 'bmp',
-        'image/vnd.microsoft.icon' => 'ico', 'image/x-icon' => 'ico',
-        'video/mp4' => 'mp4', 'video/webm' => 'webm', 'video/ogg' => 'ogv', 'video/quicktime' => 'mov',
-        'video/x-m4v' => 'm4v', 'video/x-matroska' => 'mkv',
-        'audio/mpeg' => 'mp3', 'audio/mp4' => 'm4a', 'audio/x-m4a' => 'm4a', 'audio/aac' => 'aac',
-        'audio/ogg' => 'ogg', 'audio/wav' => 'wav', 'audio/x-wav' => 'wav', 'audio/vnd.wave' => 'wav',
-        'audio/flac' => 'flac', 'audio/x-flac' => 'flac', 'audio/webm' => 'weba',
-    ];
-
     public function uploadMedia(Request $request, string $id)
     {
-        // item 15: the route id is authoritative (no body 'wall_id' override, no
-        // 'ezsheet' delegation to an unauthenticated uploader) and an upload
-        // never creates a wall.
+        // EZ-REL-20261015-3-hotfix: owner of the wall in the URL only (no body wall_id,
+        // no 'ezsheet' delegation), same-origin, never creates a wall, safe storage.
+        if (!SafeUpload::sameOrigin($request)) {
+            return response()->json(['success' => false, 'error' => 'Cross-site upload refused.'], 403);
+        }
         $wall = $this->wall((string) $id, false);
-
         if (!$wall) {
-            return response()->json([
-                'success' => false,
-                'error'   => 'Wall not found.',
-            ], 404);
+            return response()->json(['success' => false, 'error' => 'Wall not found.'], 404);
         }
-
         if (!$this->isOwner($wall, $request)) {
-            return response()->json([
-                'success' => false,
-                'error'   => 'Unauthorized: Only the wall owner can upload media.',
-            ], 403);
+            return response()->json(['success' => false, 'error' => 'Unauthorized: Only the wall owner can upload media.'], 403);
         }
-
         if (!$request->hasFile('file')) {
-            return response()->json([
-                'success' => false,
-                'error'   => 'No file provided.',
-            ], 422);
+            return response()->json(['success' => false, 'error' => 'No file provided.'], 422);
         }
-
         $file = $request->file('file');
-        if (!$file->isValid()) {
-            return response()->json([
-                'success' => false,
-                'error'   => 'File upload failed: ' . $file->getErrorMessage(),
-            ], 422);
+        $slug = preg_replace('/[^a-zA-Z0-9_\-]/', '_', (string) ($wall->slug ?: $wall->id)) ?: 'wall';
+        $res = SafeUpload::store($file, 'wall/' . $slug);
+        if (!is_array($res)) {
+            return response()->json(['success' => false, 'error' => $res], 422);
         }
-
-        // Limit: 100 MB (104,857,600 bytes)
-        $maxBytes = 100 * 1024 * 1024;
-        if ($file->getSize() > $maxBytes) {
-            return response()->json([
-                'success' => false,
-                'error'   => 'File size exceeds maximum limit of 100 MB.',
-            ], 422);
-        }
-
-        $filePath = $file->getPathname();
-        $originalName = $file->getClientOriginalName();
-        $ext = strtolower($file->getClientOriginalExtension());
-        if (!$ext) {
-            $ext = strtolower(pathinfo($originalName, PATHINFO_EXTENSION));
-        }
-
-        // 1. Sniff MIME type using finfo
-        $finfo = new \finfo(FILEINFO_MIME_TYPE);
-        $sniffedMime = strtolower($finfo->file($filePath) ?: $file->getMimeType() ?: '');
-
-        // 2. Sniff header bytes (first 8KB)
-        $handle = @fopen($filePath, 'rb');
-        $bytes = ($handle !== false) ? (string) fread($handle, 8192) : '';
-        if ($handle !== false) {
-            fclose($handle);
-        }
-
-        // Extension check for explicitly rejected categories
-        $rejectedExts = [
-            'html', 'htm', 'shtml', 'xhtml', 'svg', 'svgz', 'md', 'markdown', 'mdown', 'mkd',
-            'zip', 'rar', '7z', 'tar', 'gz', 'bz2', 'xz', 'iso', 'tgz',
-            'doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx', 'odt', 'ods', 'odp', 'rtf',
-            'exe', 'dll', 'so', 'dylib', 'bin', 'sh', 'bash', 'bat', 'cmd', 'ps1', 'vbs',
-            'php', 'phtml', 'php3', 'php4', 'php5', 'php7', 'phps', 'py', 'rb', 'pl', 'cgi',
-            'js', 'mjs', 'cjs', 'ts', 'jsx', 'tsx', 'jar', 'class', 'apk'
-        ];
-        if (in_array($ext, $rejectedExts, true)) {
-            return response()->json([
-                'success' => false,
-                'error'   => "File type '{$ext}' is rejected for server media storage.",
-            ], 422);
-        }
-
-        // Byte sniffing & MIME checks:
-
-        // Reject HTML
-        if (
-            str_contains($sniffedMime, 'html') ||
-            str_contains($sniffedMime, 'xhtml') ||
-            preg_match('/<\s*(!doctype\s+html|html|body|head|script|iframe)[\s>]/i', $bytes)
-        ) {
-            return response()->json([
-                'success' => false,
-                'error'   => 'HTML files must be inlined in the sheet as sandboxed cards and are not stored on the server.',
-            ], 422);
-        }
-
-        // Reject SVG
-        if (
-            str_contains($sniffedMime, 'svg') ||
-            (str_contains($sniffedMime, 'xml') && str_contains(strtolower($bytes), '<svg')) ||
-            preg_match('/<\s*(!doctype\s+svg|svg)[\s>]/i', $bytes)
-        ) {
-            return response()->json([
-                'success' => false,
-                'error'   => 'SVG files are rejected.',
-            ], 422);
-        }
-
-        // Reject Markdown
-        if (str_contains($sniffedMime, 'markdown') || str_contains($sniffedMime, 'text/x-markdown')) {
-            return response()->json([
-                'success' => false,
-                'error'   => 'Markdown files are rejected from media storage.',
-            ], 422);
-        }
-
-        // Reject ZIP / Archives / compressed files
-        if (
-            str_starts_with($bytes, "PK\x03\x04") ||
-            str_starts_with($bytes, "PK\x05\x06") ||
-            str_starts_with($bytes, "Rar!\x1A\x07") ||
-            str_starts_with($bytes, "7z\xBC\xAF\x27\x1C") ||
-            str_starts_with($bytes, "\x1F\x8B") ||
-            str_starts_with($bytes, "BZh") ||
-            str_starts_with($bytes, "\xFD7zXZ\x00") ||
-            str_contains($sniffedMime, 'zip') ||
-            str_contains($sniffedMime, 'compressed') ||
-            str_contains($sniffedMime, 'archive') ||
-            str_contains($sniffedMime, 'tar') ||
-            str_contains($sniffedMime, 'rar') ||
-            str_contains($sniffedMime, '7z')
-        ) {
-            return response()->json([
-                'success' => false,
-                'error'   => 'Archive, ZIP, and compressed files are rejected.',
-            ], 422);
-        }
-
-        // Reject Office documents (OLE2 / legacy .doc, .xls, .ppt, or OpenXML)
-        if (
-            str_starts_with($bytes, "\xD0\xCF\x11\xE0\xA1\xB1\x1A\xE1") ||
-            str_contains($sniffedMime, 'msword') ||
-            str_contains($sniffedMime, 'officedocument') ||
-            str_contains($sniffedMime, 'ms-excel') ||
-            str_contains($sniffedMime, 'ms-powerpoint')
-        ) {
-            return response()->json([
-                'success' => false,
-                'error'   => 'Office documents are rejected.',
-            ], 422);
-        }
-
-        // Reject executables and scripts
-        if (
-            str_starts_with($bytes, "MZ") ||
-            str_starts_with($bytes, "\x7FELF") ||
-            str_starts_with($bytes, "\xCA\xFE\xBA\xBE") ||
-            str_starts_with($bytes, "\xCE\xFA\xED\xFE") ||
-            str_starts_with($bytes, "\xCF\xFA\xED\xFE") ||
-            str_starts_with($bytes, "#!") ||
-            preg_match('/<\?(?:php|=)/i', $bytes) ||
-            str_contains($sniffedMime, 'executable') ||
-            str_contains($sniffedMime, 'x-sh') ||
-            str_contains($sniffedMime, 'x-php') ||
-            str_contains($sniffedMime, 'javascript') ||
-            str_contains($sniffedMime, 'x-python') ||
-            str_contains($sniffedMime, 'x-perl')
-        ) {
-            return response()->json([
-                'success' => false,
-                'error'   => 'Executables and scripts are rejected.',
-            ], 422);
-        }
-
-        // Check if allowed media type: Image, Video, Audio, or PDF
-        $isPdf = ($sniffedMime === 'application/pdf' || str_starts_with($bytes, "%PDF-"));
-        $isImage = str_starts_with($sniffedMime, 'image/');
-        $isVideo = str_starts_with($sniffedMime, 'video/');
-        $isAudio = str_starts_with($sniffedMime, 'audio/');
-
-        if (!$isPdf && !$isImage && !$isVideo && !$isAudio) {
-            return response()->json([
-                'success' => false,
-                'error'   => 'Unsupported media file type. Supported types: Images, Videos, Audio, and PDF.',
-            ], 422);
-        }
-
-        $kind = $isPdf ? 'pdf' : ($isImage ? 'image' : ($isVideo ? 'video' : 'audio'));
-        // item 15: the stored extension comes from the sniffed type, never from
-        // the client name (a client ".php"/".phtml" name can no longer land in public/).
-        $ext = $isPdf ? 'pdf' : (self::MEDIA_EXT[$sniffedMime] ?? null);
-        if ($ext === null) {
-            return response()->json([
-                'success' => false,
-                'error'   => "Unsupported media format ({$sniffedMime}).",
-            ], 422);
-        }
-
-        // Target directory: public/upload/wall/<slug>/
-        $wallSlug = $wall->slug ?: (string)$wall->id;
-        $safeSlug = preg_replace('/[^a-zA-Z0-9_\-]/', '_', $wallSlug) ?: 'wall';
-        $targetDir = public_path("upload/wall/{$safeSlug}");
-        if (!file_exists($targetDir)) {
-            @mkdir($targetDir, 0755, true);
-        }
-
-        // Server-generated name
-        $serverName = 'media_' . time() . '_' . Str::lower(Str::random(12)) . '.' . $ext;
-        $targetPath = $targetDir . '/' . $serverName;
-
-        $file->move($targetDir, $serverName);
-        @chmod($targetPath, 0644);
-
-        $publicUrl = "/upload/wall/{$safeSlug}/{$serverName}";
-
-        return response()->json([
-            'success'   => true,
-            'url'       => $publicUrl,
-            'filename'  => $originalName,
-            'name'      => $serverName,
-            'kind'      => $kind,
-            'mime_type' => $sniffedMime,
-            'size'      => @filesize($targetPath) ?: $file->getSize(),
-        ]);
+        return response()->json(['success' => true, 'filename' => $file->getClientOriginalName()] + $res);
     }
 
     /**
@@ -1638,12 +1431,35 @@ class WallController extends Controller
      */
     public function uploadEzsheetFile(Request $request)
     {
-        // item 15: removed. It accepted files from anyone, kept the client
-        // extension and wrote into public/ (stored XSS / possible PHP execution).
-        // Routes are gone too; this stub only answers stale callers.
-        return response()->json([
-            'success' => false,
-            'error'   => 'Gone: upload media from your wall (POST /api/wall/{id}/media).',
-        ], 410);
+        // EZ-REL-20261015-3-hotfix: logged-in, same-origin, sniffed allow-list,
+        // server name + extension, stored only in public/upload/ezsheet/.
+        if ($deny = SafeUpload::guard($request)) {
+            return $deny;
+        }
+        if ($request->hasFile('file')) {
+            $file = $request->file('file');
+            $original = $file->getClientOriginalName();
+            $res = SafeUpload::store($file, 'ezsheet');
+        } elseif ($request->filled('data')) {
+            $original = (string) $request->input('filename', 'upload');
+            $data = (string) $request->input('data');
+            if (strlen($data) > (int) ceil(SafeUpload::MAX_BYTES * 4 / 3) + 256) {
+                return response()->json(['success' => false, 'message' => 'File exceeds the 100 MB limit.'], 422);
+            }
+            if (preg_match('/^data:[^;,]*;base64,/', $data, $m)) {
+                $data = substr($data, strlen($m[0]));
+            }
+            $bytes = base64_decode($data, true);
+            if ($bytes === false) {
+                return response()->json(['success' => false, 'message' => 'Bad file data.'], 422);
+            }
+            $res = SafeUpload::store($bytes, 'ezsheet');
+        } else {
+            return response()->json(['success' => false, 'message' => 'No file or data provided'], 422);
+        }
+        if (!is_array($res)) {
+            return response()->json(['success' => false, 'message' => $res, 'error' => $res], 422);
+        }
+        return response()->json(['success' => true, 'message' => 'File uploaded', 'filename' => $original] + $res);
     }
 }

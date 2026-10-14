@@ -31,8 +31,7 @@ test('item15: YouTube iframe sends a referrer (strict-origin-when-cross-origin) 
 
 for (const f of ['resources/js/components/EzSheetPreview.tsx', 'resources/js/components/EzSheetEditorPanel.tsx']) {
   const src = read(f);
-  test('item15: ' + path.basename(f) + ' no longer calls upload-ezsheet-file and has no 15 s timeout', () => {
-    assert.doesNotMatch(src, /fetch\('\/api\/wall\/upload-ezsheet-file'|\? '\/api\/wall\/upload-ezsheet-file'/);
+  test('item15/-3: ' + path.basename(f) + ' has no 15 s timeout', () => {
     assert.doesNotMatch(src, /xhr\.timeout = 15000/);
     assert.match(src, /xhr\.timeout = 0/);
   });
@@ -46,8 +45,8 @@ for (const f of ['resources/js/components/EzSheetPreview.tsx', 'resources/js/com
   });
 }
 
-test('item15: routes no longer expose upload-ezsheet-file', () => {
-  for (const f of ['routes/api.php', 'routes/web.php']) assert.doesNotMatch(read(f), /upload-ezsheet-file/, f);
+test('-3: upload-ezsheet-file stays routed (homepage, signed-in only) and throttled', () => {
+  for (const f of ['routes/api.php', 'routes/web.php']) assert.match(read(f), /upload-ezsheet-file'[^\n]*throttle:30,1/, f);
 });
 
 test('rel-2: no hard-coded dev user / wall in app.tsx; wall-card-only display restored', () => {

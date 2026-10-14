@@ -205,9 +205,9 @@ function DefaultMediaUploadPane({ onAddCards, onUploadingChange }: { onAddCards:
     const failUpload = (msg?: string) => {
       setItems((prev) => prev.map((it) => (it.id === item.id ? { ...it, status: 'error', error: msg || 'Upload failed', xhr: undefined } : it)));
     };
-    // item 15: only small images may fall back to an inline data: URL.
+    // hotfix: no silent inline fallback except small images
     const fallbackLocal = (msg?: string) => {
-      if (!(item.kind === 'image' && item.file.size <= 2 * 1024 * 1024)) { failUpload(msg || 'Upload failed (check upload_max_filesize / post_max_size)'); return; }
+      if (!(item.kind === 'image' && item.file.size <= 2 * 1024 * 1024)) { failUpload(msg || 'Upload failed'); return; }
       try {
         const r = new FileReader();
         r.onload = (ev) => finishWithUrl(String(ev.target?.result || ''));
@@ -234,12 +234,13 @@ function DefaultMediaUploadPane({ onAddCards, onUploadingChange }: { onAddCards:
     fd.append('file', item.file);
     fd.append('wall_id', wallId);
 
-    if (wallId === 'ezsheet') { fallbackLocal('Open your own wall to upload media (no wall yet)'); return; }
-    const targetUrl = `/api/wall/${encodeURIComponent(wallId)}/media`;
+    const targetUrl = (wallId === 'ezsheet')
+      ? '/api/wall/upload-ezsheet-file' // homepage: signed-in users only (401 otherwise)
+      : `/api/wall/${encodeURIComponent(wallId)}/media`;
 
     xhr.open('POST', targetUrl, true);
     xhr.withCredentials = true;
-    xhr.timeout = 0; // item 15: was 15 s, which aborted large videos
+    xhr.timeout = 0;
 
     try {
       const tok = localStorage.getItem('wall_owner');
@@ -268,8 +269,9 @@ function DefaultMediaUploadPane({ onAddCards, onUploadingChange }: { onAddCards:
           }
         } catch {}
       }
+      if (xhr.status === 401) { failUpload('Sign in to upload'); return; }
       let em = 'HTTP ' + xhr.status;
-      try { const ej = JSON.parse(xhr.responseText); if (ej && (ej.error || ej.message)) em = ej.error || ej.message; } catch {}
+      try { const ej = JSON.parse(xhr.responseText); if (ej && (ej.message || ej.error)) em = ej.message || ej.error; } catch {}
       if (xhr.status === 413) em = 'File too large for the server (HTTP 413)';
       fallbackLocal(em);
     };

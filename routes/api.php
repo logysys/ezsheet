@@ -106,7 +106,8 @@ Route::middleware(['web'])->prefix('wall')->group(function () {
         Route::post  ('{id}/push-to-wall',        [WallController::class, 'pushToWall']);
         Route::get   ('{id}/sheet',               [WallController::class, 'getSheet']);
         Route::get   ('{id}/sheet/download',      [WallController::class, 'downloadSheet']);
-        Route::post  ('{id}/media',               [WallController::class, 'uploadMedia']);
+        Route::post  ('{id}/media',               [WallController::class, 'uploadMedia'])->middleware('throttle:30,1');
+        Route::post  ('upload-ezsheet-file',      [WallController::class, 'uploadEzsheetFile'])->middleware('throttle:30,1');
         // Removed in pass 2: always 410 Gone (order comes from EzSheet push).
         // Kept through pass 4 so old cached clients get a clear 410, not a 404/405.
         // Delete these two routes and WallController::reorderGone() in the next release.

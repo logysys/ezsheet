@@ -954,6 +954,7 @@ ${getEzSheetEditor().html({ ids: true, i18n: true, btnClass: 'tool-btn', pushCla
       </div>
     </div>
 
+    <div id="mediaSignIn" hidden style="border:1px dashed #cbd5e1;border-radius:10px;padding:18px;text-align:center;font-size:13px;color:#334155;background:#f8fafc">🔒 Sign in to upload media. <a href="/login" target="_top" rel="noopener" style="color:#0284c7;font-weight:700">Sign in</a></div>
     <div class="drop media-drop" id="mediaDrop">
       <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" style="margin:0 auto 10px;display:block"><rect x="3" y="3" width="18" height="18" rx="3" ry="3"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
       <div style="font-size:13.5px;margin-bottom:6px">
@@ -1641,10 +1642,36 @@ if($('fileUpload')){
         }
       }
 
-      var fileUrl = '';
-      // item 15: the unauthenticated upload-ezsheet-file endpoint was removed;
-      // this local preview path inlines the file below (data: URL) as before.
+      var fileUrl = '', upDenied = false;
+      var isHtmlFile = (ext === 'html' || ext === 'htm' || type === 'text/html');
+      if(!isHtmlFile && window.EZ_AUTHED === false){ upDenied = true; }
+      if(!isHtmlFile && !upDenied) try{
+        var base64Data = await new Promise(function(resolve, reject){
+          var reader = new FileReader();
+          reader.onload = function(){ resolve(String(reader.result)); };
+          reader.onerror = reject;
+          reader.readAsDataURL(file);
+        });
+        var uploadRes = await fetch('/api/wall/upload-ezsheet-file', {
+          method: 'POST',
+          credentials: 'same-origin',
+          headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest', 'Accept': 'application/json' },
+          body: JSON.stringify({ filename: name, data: base64Data, mime_type: type })
+        });
+        if(uploadRes.status === 401){ upDenied = true; window.EZ_AUTHED = false; ezShowSignIn(); }
+        if(uploadRes.ok){
+          var resData = await uploadRes.json();
+          if(resData && resData.url) fileUrl = resData.url;
+        } else if(!upDenied){
+          try{ var errD = await uploadRes.json(); if(errD && (errD.message || errD.error)) toast('✗ ' + name + ': ' + (errD.message || errD.error)); }catch(e2){}
+        }
+      }catch(upErr){}
 
+      /* hotfix: only HTML (inlined, never stored) and small images may be inlined */
+      if(!fileUrl && !isHtmlFile && !(type.indexOf('image/') === 0 && file.size <= 2 * 1024 * 1024)){
+        toast(upDenied ? '🔒 Sign in to upload ' + name : '✗ ' + name + ' was not uploaded');
+        continue;
+      }
       if(!fileUrl){
         try{
           fileUrl = await new Promise(function(resolve, reject){
@@ -1859,6 +1886,22 @@ function paintMedia(){
   }).join('');
 }
 
+/* hotfix: uploads need a signed-in session (server answers 401 otherwise) */
+window.EZ_AUTHED = null;
+function ezShowSignIn(){
+  var si = $('mediaSignIn'), dr = $('mediaDrop');
+  if(si) si.hidden = false;
+  if(dr) dr.hidden = true;
+}
+try{
+  fetch('/api/wall/auth/me', { credentials: 'same-origin', headers: { 'Accept': 'application/json' } })
+    .then(function(r){ return r.ok ? r.json() : null; })
+    .then(function(d){
+      window.EZ_AUTHED = !!(d && d.authenticated && d.user && d.user.id);
+      if(!window.EZ_AUTHED && (window.WALL_ID || 'ezsheet') === 'ezsheet') ezShowSignIn();
+    }).catch(function(){});
+}catch(e){}
+
 function startItemUpload(item){
   if(item.size > 100 * 1024 * 1024){
     item.status = 'error';
@@ -1942,12 +1985,10 @@ function startItemUpload(item){
     paintMedia();
     toast('✗ ' + item.name + ': ' + item.error);
   };
-  // item 15: only small images may fall back to an inline data: URL.
-  // Video/audio/PDF used to fall back silently to a huge data:/blob: URL
-  // (blob: dies on reload, big data: URLs never play) -> stuck at 0:00.
+  /* hotfix: no silent inline fallback except small images */
   var fallbackToLocal = function(msg){
     if(!(item.kind === 'image' && item.size <= 2 * 1024 * 1024)){
-      failUpload(msg || 'Upload failed (check upload_max_filesize / post_max_size)');
+      failUpload(msg || 'Upload failed');
       return;
     }
     try {
@@ -1989,16 +2030,18 @@ function startItemUpload(item){
   var wallId = window.WALL_ID || 'ezsheet';
   fd.append('wall_id', wallId);
 
-  if(wallId === 'ezsheet'){
-    // item 15: the unauthenticated upload-ezsheet-file endpoint is gone.
-    fallbackToLocal('Open your own wall to upload media (no wall yet)');
+  if(wallId === 'ezsheet' && window.EZ_AUTHED === false){
+    ezShowSignIn();
+    failUpload('Sign in to upload');
     return;
   }
-  var targetUrl = '/api/wall/' + encodeURIComponent(wallId) + '/media';
+  var targetUrl = (wallId === 'ezsheet')
+    ? '/api/wall/upload-ezsheet-file'   // homepage: signed-in users only (401 otherwise)
+    : '/api/wall/' + encodeURIComponent(wallId) + '/media';
 
   xhr.open('POST', targetUrl, true);
   xhr.withCredentials = true;
-  xhr.timeout = 0; // item 15: was 15 s, which aborted every large video
+  xhr.timeout = 0;
   var tok = (typeof WallCore !== 'undefined' && WallCore.ownerToken) ? WallCore.ownerToken() : '';
   if(tok) xhr.setRequestHeader('x-wall-owner', tok);
   try {
@@ -2025,8 +2068,13 @@ function startItemUpload(item){
         }
       }catch(ex){}
     }
+    if(xhr.status === 401){
+      window.EZ_AUTHED = false; ezShowSignIn();
+      failUpload('Sign in to upload');
+      return;
+    }
     var em = 'HTTP ' + xhr.status;
-    try { var ej = JSON.parse(xhr.responseText); if(ej && (ej.error || ej.message)) em = ej.error || ej.message; } catch(ex){}
+    try { var ej = JSON.parse(xhr.responseText); if(ej && (ej.message || ej.error)) em = ej.message || ej.error; } catch(ex){}
     if(xhr.status === 413) em = 'File too large for the server (HTTP 413)';
     fallbackToLocal(em);
   };
