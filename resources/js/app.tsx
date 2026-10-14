@@ -79,11 +79,9 @@ if (!appEl.dataset.page) {
                     conversation_cost: 0,
                     status: 'public',
                     format: 'ezsheet',
-                    user_id: 1,
-                    user: { id: 1, name: 'SUJIT DAS', email: 'indianstory555@gmail.com' },
                     social_media_metadata: {
                         format: 'ezsheet',
-                        wall_id: slug || 'W0000002',
+                        wall_id: slug,
                     },
                 },
                 conversation_messages: [],
@@ -95,7 +93,7 @@ if (!appEl.dataset.page) {
                     { id: 2, domain: 'oki.wiki' },
                     { id: 3, domain: 'ez3d.ai' },
                 ],
-                auth: { user: { id: 1, name: 'SUJIT DAS', email: 'indianstory555@gmail.com' } },
+                auth: { user: null },
             },
             url: pathname,
             version: '',
@@ -104,7 +102,7 @@ if (!appEl.dataset.page) {
         appEl.dataset.page = JSON.stringify({
             component: 'ezbar',
             props: {
-                auth: { user: { id: 1, name: 'SUJIT DAS', email: 'indianstory555@gmail.com' } },
+                auth: { user: null },
                 domains: [
                     { id: 1, domain: 'ez.wiki' },
                     { id: 2, domain: 'oki.wiki' },

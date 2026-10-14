@@ -69,6 +69,7 @@ import MessageReactionsBar from '@/components/MessageReactionsBar';
 import { SocialShareModal } from '@/components/SocialShareModal';
 import { HtmlDocPreview } from '@/components/HtmlDocPreview';
 import EzSheetPreview from '@/components/EzSheetPreview';
+import { ownerEditLink, wantsEditorOpen } from '@/components/ownerEditLink.mjs';
 import { detectAndProcessHtml } from '@/utils/htmlHelper';
 import Masonry from 'react-masonry-css';
 
@@ -1048,14 +1049,11 @@ export default function AISearchView({
         return () => window.removeEventListener('message', handleWallMsg);
     }, [acceptWallSnapshot]);
 
-    const extractWallCardContent = useCallback((rawText?: string, targetWallId?: string): string => {
-        if (targetWallId && wallCardContentMap[targetWallId]) {
+    const extractWallCardContent = useCallback((_rawText?: string, targetWallId?: string): string => {
+        // Show ONLY wall card content from wall_cards database table for this wallId.
+        // No need to show aisearchhistory content in ezsheetpreview.tsx! (restored in EZ-REL-20261015-2)
+        if (targetWallId && wallCardContentMap[targetWallId] !== undefined) {
             return wallCardContentMap[targetWallId];
-        }
-
-        // Fall back to original raw text if wall card database load is pending or empty
-        if (rawText && typeof rawText === 'string' && rawText.trim()) {
-            return rawText;
         }
 
         return '';
@@ -3547,7 +3545,19 @@ export default function AISearchView({
                             <span className="flex items-center gap-1.5 font-semibold">
                                 🧱 Wall ID: <span className="bg-indigo-600 text-white px-2 py-0.5 rounded text-[11px] font-bold">{wallId}</span>
                             </span>
-                            <span className="text-[11px] text-indigo-500 font-sans">Wall Cards</span>
+                            <span className="flex items-center gap-2">
+                                {/* item 14: on a custom subdomain the ez.wiki login is not visible, so the owner gets a link to edit on the main site */}
+                                {!isOwner && typeof window !== 'undefined' && ownerEditLink(window.location.hostname, message.slug, window.location.protocol) && (
+                                    <a
+                                        href={ownerEditLink(window.location.hostname, message.slug, window.location.protocol) as string}
+                                        className="ez-owner-edit text-[11px] font-sans font-semibold bg-white border border-indigo-300 text-indigo-700 rounded-full px-2 py-0.5 hover:bg-indigo-600 hover:text-white"
+                                        title="Wall owner? Open this wall on the main site to edit it (your login lives there)"
+                                    >
+                                        ✎ Edit on {window.location.hostname.split('.').slice(1).join('.')}
+                                    </a>
+                                )}
+                                <span className="text-[11px] text-indigo-500 font-sans">Wall Cards</span>
+                            </span>
                         </div>
                     )}
                     <EzSheetPreview
@@ -3562,6 +3572,7 @@ export default function AISearchView({
                         filter={true}
                         auth={auth}
                         isOwner={isOwner}
+                        openEditor={typeof window !== 'undefined' && wantsEditorOpen(window.location.search)}
                         domains={domains}
                         cols={wallSettingsMap[wallId]?.layout !== undefined ? (wallSettingsMap[wallId].layout === 'original' ? -1 : wallSettingsMap[wallId].layout === 'random' ? 0 : Number(wallSettingsMap[wallId].layout)) : undefined}
                         car={wallSettingsMap[wallId]?.carousel !== undefined ? wallSettingsMap[wallId].carousel : wallSettingsMap[wallId]?.carousal}

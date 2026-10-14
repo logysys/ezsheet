@@ -498,7 +498,7 @@ function fitPluginUrl(u,w){
   }catch(e){return u;}
 }
 function frameHTML(o,w){
-  if(o.type==='youtube')return `<iframe class="embed" src="https://www.youtube-nocookie.com/embed/${esc(o.id)}" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen loading="lazy"></iframe>`;
+  if(o.type==='youtube')return `<iframe class="embed" src="https://www.youtube-nocookie.com/embed/${esc(o.id)}" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" referrerpolicy="strict-origin-when-cross-origin" title="YouTube video" allowfullscreen loading="lazy"></iframe>`;
   /* 使用者貼的 HTML：不給 allow-same-origin，讀不到主頁的 localStorage 與 DOM (safety net: checks o.html and missing url) */
   if(o.type==='html' || o.html || (!o.url && !o.id && !o.mdl && !o.md))return `<iframe class="html-frame" sandbox="allow-scripts allow-popups allow-popups-to-escape-sandbox allow-forms allow-presentation" loading="lazy"></iframe>`;
   /* 3D 檢視器只需要跑 script，不給彈窗、不給同源 */

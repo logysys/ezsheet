@@ -261,7 +261,6 @@ Route::prefix('api/wall')->middleware(['web'])->group(function () {
     Route::get('{id}/sheet', [\App\Http\Controllers\Api\WallController::class, 'getSheet']);
     Route::get('{id}/sheet/download', [\App\Http\Controllers\Api\WallController::class, 'downloadSheet']);
     Route::post('{id}/media', [\App\Http\Controllers\Api\WallController::class, 'uploadMedia']);
-    Route::post('upload-ezsheet-file', [\App\Http\Controllers\Api\WallController::class, 'uploadEzsheetFile']);
     // pass 2/3: reorder removed, always 410 Gone (order comes from the EzSheet push).
     // Kept through pass 4 (one more release for cached clients); delete with reorderGone() next release.
     Route::post('{id}/reorder', [\App\Http\Controllers\Api\WallController::class, 'reorderGone']);
@@ -270,7 +269,6 @@ Route::prefix('api/wall')->middleware(['web'])->group(function () {
 Route::post('/wall/{id}/settings', [\App\Http\Controllers\Api\WallController::class, 'saveSettings']);
 Route::post('/wall/{id}/push-to-wall', [\App\Http\Controllers\Api\WallController::class, 'pushToWall']);
 Route::post('/wall/{id}/media', [\App\Http\Controllers\Api\WallController::class, 'uploadMedia']);
-Route::post('/wall/upload-ezsheet-file', [\App\Http\Controllers\Api\WallController::class, 'uploadEzsheetFile']);
 Route::post('/wall/{id}/reorder', [\App\Http\Controllers\Api\WallController::class, 'reorderGone']);
 Route::post('/wall/{id}/cards/reorder', [\App\Http\Controllers\Api\WallController::class, 'reorderGone']);
 

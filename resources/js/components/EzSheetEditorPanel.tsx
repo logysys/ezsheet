@@ -185,11 +185,12 @@ function DefaultMediaUploadPane({ onAddCards, onUploadingChange }: { onAddCards:
     }
 
     const finishWithUrl = (url: string) => {
+      if (/^\/(?!\/)/.test(url)) url = location.origin + url; // item 15: absolute URL
       let block = '';
       if (item.kind === 'image') {
         block = `<img src="${url}" alt="${item.name}" style="max-width:100%;height:auto;display:block;border-radius:8px;margin:0 auto" />`;
       } else if (item.kind === 'video') {
-        block = `<video src="${url}" controls playsinline style="max-width:100%;width:100%;display:block;border-radius:8px;background:#000"></video>`;
+        block = `<video src="${url}" controls playsinline preload="metadata" style="max-width:100%;width:100%;display:block;border-radius:8px;background:#000"></video><div style="text-align:right;font:11px sans-serif;margin-top:4px"><a href="${url}" target="_blank" rel="noopener" style="color:#2563eb;text-decoration:none">Open video ↗</a></div>`;
       } else if (item.kind === 'audio') {
         block = `<div style="background:linear-gradient(135deg,#0f172a,#1e1b4b);padding:14px;border-radius:10px;color:#fff;display:flex;flex-direction:column;gap:8px">\n  <div style="font-size:12px;font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">🎵 ${item.name}</div>\n  <audio src="${url}" controls style="width:100%"></audio>\n</div>`;
       } else if (item.kind === 'pdf') {
@@ -201,7 +202,12 @@ function DefaultMediaUploadPane({ onAddCards, onUploadingChange }: { onAddCards:
       if (block) onAddCards([block], 'b');
     };
 
-    const fallbackLocal = () => {
+    const failUpload = (msg?: string) => {
+      setItems((prev) => prev.map((it) => (it.id === item.id ? { ...it, status: 'error', error: msg || 'Upload failed', xhr: undefined } : it)));
+    };
+    // item 15: only small images may fall back to an inline data: URL.
+    const fallbackLocal = (msg?: string) => {
+      if (!(item.kind === 'image' && item.file.size <= 2 * 1024 * 1024)) { failUpload(msg || 'Upload failed (check upload_max_filesize / post_max_size)'); return; }
       try {
         const r = new FileReader();
         r.onload = (ev) => finishWithUrl(String(ev.target?.result || ''));
@@ -228,13 +234,12 @@ function DefaultMediaUploadPane({ onAddCards, onUploadingChange }: { onAddCards:
     fd.append('file', item.file);
     fd.append('wall_id', wallId);
 
-    const targetUrl = (wallId === 'ezsheet')
-      ? '/api/wall/upload-ezsheet-file'
-      : `/api/wall/${encodeURIComponent(wallId)}/media`;
+    if (wallId === 'ezsheet') { fallbackLocal('Open your own wall to upload media (no wall yet)'); return; }
+    const targetUrl = `/api/wall/${encodeURIComponent(wallId)}/media`;
 
     xhr.open('POST', targetUrl, true);
     xhr.withCredentials = true;
-    xhr.timeout = 15000;
+    xhr.timeout = 0; // item 15: was 15 s, which aborted large videos
 
     try {
       const tok = localStorage.getItem('wall_owner');
@@ -263,7 +268,10 @@ function DefaultMediaUploadPane({ onAddCards, onUploadingChange }: { onAddCards:
           }
         } catch {}
       }
-      fallbackLocal();
+      let em = 'HTTP ' + xhr.status;
+      try { const ej = JSON.parse(xhr.responseText); if (ej && (ej.error || ej.message)) em = ej.error || ej.message; } catch {}
+      if (xhr.status === 413) em = 'File too large for the server (HTTP 413)';
+      fallbackLocal(em);
     };
 
     xhr.onerror = () => {

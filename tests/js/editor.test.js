@@ -20,7 +20,7 @@ function boot(fetchImpl) {
     json: JSON.stringify({ id: 'W0000057', list: [] }), spriteInit: '', resolvedAuth: { user: null }, parentOrigin: 'https://ez.test',
     resolvedDomains: [], wallId: 'W0000057', slug: 'W0000057', messageId: 1, effectiveSyncUrl: 'https://ez.test', frameCheckUrl: '', metaUrl: '',
     payload: { id: 'W0000057', lang: 'en', cols: 0, car: false }, JSON,
-    autoHeight: false, frameless: false, wallAutoHeightReporter: function () {},
+    autoHeight: false, frameless: false, openEditor: false, wallAutoHeightReporter: function () {},
   });
   const calls = [];
   const dom = new JSDOM(html, { runScripts: 'dangerously', url: 'https://ez.test/x', pretendToBeVisual: true,

@@ -22,7 +22,7 @@ const scope = {
   resolvedAuth: {}, parentOrigin: '', resolvedDomains: [], wallId: 'W0000057', slug: 'x', messageId: 1, effectiveSyncUrl: '',
   frameCheckUrl: '', metaUrl: '', payload: { id: 'W0000057', lang: 'en', cols: 0, car: false, zones: null, zorder: null }, JSON,
   /* item 10: syntax-check the injected auto-height reporter too */
-  autoHeight: true, frameless: true, wallAutoHeightReporter: { toString: () => AH_FN },
+  autoHeight: true, frameless: true, openEditor: false, wallAutoHeightReporter: { toString: () => AH_FN },
 };
 const html = vm.runInNewContext(tpl, scope);
 const scripts = [...html.matchAll(/<script>([\s\S]*?)<\/script>/g)].map(m => m[1]);

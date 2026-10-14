@@ -45,6 +45,8 @@ interface EzSheetPreviewProps {
   frameless?: boolean;
   /** item 10: lower bound for autoHeight (px). */
   minHeight?: number;
+  /** item 14: open the EzSheet editor once the wall is ready, if the viewer is the owner (?ezsheet=edit). */
+  openEditor?: boolean;
   wallId?: string;
   lang?: string;
   cols?: number;
@@ -568,6 +570,7 @@ const EzSheetPreview: React.FC<EzSheetPreviewProps> = ({
   autoHeight = false,
   frameless = false,
   minHeight = 240,
+  openEditor = false,
   wallId = 'ezsheet',
   lang = 'en',
   cols,
@@ -985,6 +988,7 @@ try{WallCore.setWallSync(${JSON.stringify(effectiveSyncUrl)});}catch(e){}
 ${frameCheckUrl ? `try{WallCore.setFrameCheck(${JSON.stringify(frameCheckUrl)});}catch(e){}` : ''}
 ${metaUrl ? `try{WallCore.setMetaFetch(${JSON.stringify(metaUrl)});}catch(e){}` : ''}
 try { WallCore.bootReadonly(); } catch (e) { console.error('bootReadonly failed', e); }
+window.EZ_OPEN_EDITOR = ${JSON.stringify(!!openEditor)};
 
 var fw = document.querySelector('.fab-wrap');
 if(fw && !document.getElementById('copyBtn')){
@@ -1638,23 +1642,8 @@ if($('fileUpload')){
       }
 
       var fileUrl = '';
-      try{
-        var base64Data = await new Promise(function(resolve, reject){
-          var reader = new FileReader();
-          reader.onload = function(){ resolve(String(reader.result)); };
-          reader.onerror = reject;
-          reader.readAsDataURL(file);
-        });
-        var uploadRes = await fetch('/api/wall/upload-ezsheet-file', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ filename: name, data: base64Data, mime_type: type })
-        });
-        if(uploadRes.ok){
-          var resData = await uploadRes.json();
-          if(resData && resData.url) fileUrl = resData.url;
-        }
-      }catch(upErr){}
+      // item 15: the unauthenticated upload-ezsheet-file endpoint was removed;
+      // this local preview path inlines the file below (data: URL) as before.
 
       if(!fileUrl){
         try{
@@ -1912,13 +1901,16 @@ function startItemUpload(item){
   }
 
   var finishWithUrl = function(url, isFallback){
+    // item 15: absolute URL so the block works in any frame, export or host
+    if(url.charAt(0) === '/' && url.charAt(1) !== '/') url = location.origin + url;
     item.progress = 100;
     item.status = 'finished';
     var block = '';
     if(item.kind === 'image'){
       block = '<img src="' + url + '" alt="' + WallCore.esc(item.name) + '" style="max-width:100%;height:auto;display:block;border-radius:8px;margin:0 auto" />';
     } else if(item.kind === 'video'){
-      block = '<video src="' + url + '" controls playsinline style="max-width:100%;width:100%;display:block;border-radius:8px;background:#000" preload="metadata"></video>';
+      block = '<video src="' + url + '" controls playsinline preload="metadata" style="max-width:100%;width:100%;display:block;border-radius:8px;background:#000"></video>'
+        + '<div style="text-align:right;font:11px sans-serif;margin-top:4px"><a href="' + url + '" target="_blank" rel="noopener" style="color:#2563eb;text-decoration:none">Open video ↗</a></div>';
     } else if(item.kind === 'audio'){
       block = '<div style="background:linear-gradient(135deg,#0f172a,#1e1b4b);padding:14px;border-radius:10px;color:#fff;display:flex;flex-direction:column;gap:8px">'
         + '<div style="font-size:12px;font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">🎵 ' + WallCore.esc(item.name) + '</div>'
@@ -1944,7 +1936,20 @@ function startItemUpload(item){
     toast('✓ ' + item.name + (isFallback ? ' added (local preview). Push to create card.' : ' uploaded to Content. Push to create card.'));
   };
 
-  var fallbackToLocal = function(){
+  var failUpload = function(msg){
+    item.status = 'error';
+    item.error = msg || 'Upload failed';
+    paintMedia();
+    toast('✗ ' + item.name + ': ' + item.error);
+  };
+  // item 15: only small images may fall back to an inline data: URL.
+  // Video/audio/PDF used to fall back silently to a huge data:/blob: URL
+  // (blob: dies on reload, big data: URLs never play) -> stuck at 0:00.
+  var fallbackToLocal = function(msg){
+    if(!(item.kind === 'image' && item.size <= 2 * 1024 * 1024)){
+      failUpload(msg || 'Upload failed (check upload_max_filesize / post_max_size)');
+      return;
+    }
     try {
       var r = new FileReader();
       r.onload = function(ev){
@@ -1984,13 +1989,16 @@ function startItemUpload(item){
   var wallId = window.WALL_ID || 'ezsheet';
   fd.append('wall_id', wallId);
 
-  var targetUrl = (wallId === 'ezsheet')
-    ? '/api/wall/upload-ezsheet-file'
-    : '/api/wall/' + encodeURIComponent(wallId) + '/media';
+  if(wallId === 'ezsheet'){
+    // item 15: the unauthenticated upload-ezsheet-file endpoint is gone.
+    fallbackToLocal('Open your own wall to upload media (no wall yet)');
+    return;
+  }
+  var targetUrl = '/api/wall/' + encodeURIComponent(wallId) + '/media';
 
   xhr.open('POST', targetUrl, true);
   xhr.withCredentials = true;
-  xhr.timeout = 15000;
+  xhr.timeout = 0; // item 15: was 15 s, which aborted every large video
   var tok = (typeof WallCore !== 'undefined' && WallCore.ownerToken) ? WallCore.ownerToken() : '';
   if(tok) xhr.setRequestHeader('x-wall-owner', tok);
   try {
@@ -2017,8 +2025,10 @@ function startItemUpload(item){
         }
       }catch(ex){}
     }
-    // Graceful fallback to local Data URL on server issue
-    fallbackToLocal();
+    var em = 'HTTP ' + xhr.status;
+    try { var ej = JSON.parse(xhr.responseText); if(ej && (ej.error || ej.message)) em = ej.error || ej.message; } catch(ex){}
+    if(xhr.status === 413) em = 'File too large for the server (HTTP 413)';
+    fallbackToLocal(em);
   };
 
   xhr.onerror = function(){
@@ -2210,7 +2220,8 @@ window.addEventListener('message', function(e){
     } catch(err){}
   }
 });
-if(window.isOwner) loadSheet();
+/* item 14: ?ezsheet=edit (the 'Edit on ez.wiki' link from a subdomain) opens the editor for the owner */
+if(window.isOwner){ var ezLoad = loadSheet(); if(window.EZ_OPEN_EDITOR) ezLoad.then(function(){ if(window.openPanel) window.openPanel(); }); }
 </script>
 ${autoHeight ? '<script>(' + wallAutoHeightReporter.toString() + ')(window);</script>' : ''}
 </body>

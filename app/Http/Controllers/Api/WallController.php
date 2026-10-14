@@ -1398,16 +1398,24 @@ class WallController extends Controller
      * Byte-sniffing checks: reject HTML, SVG, md, zip, office files, executables and scripts.
      * Stored in public/upload/wall/<slug>/ under a server-generated name.
      */
+    /** item 15: sniffed MIME -> stored extension (whitelist). */
+    private const MEDIA_EXT = [
+        'image/jpeg' => 'jpg', 'image/png' => 'png', 'image/gif' => 'gif', 'image/webp' => 'webp',
+        'image/avif' => 'avif', 'image/bmp' => 'bmp', 'image/x-ms-bmp' => 'bmp',
+        'image/vnd.microsoft.icon' => 'ico', 'image/x-icon' => 'ico',
+        'video/mp4' => 'mp4', 'video/webm' => 'webm', 'video/ogg' => 'ogv', 'video/quicktime' => 'mov',
+        'video/x-m4v' => 'm4v', 'video/x-matroska' => 'mkv',
+        'audio/mpeg' => 'mp3', 'audio/mp4' => 'm4a', 'audio/x-m4a' => 'm4a', 'audio/aac' => 'aac',
+        'audio/ogg' => 'ogg', 'audio/wav' => 'wav', 'audio/x-wav' => 'wav', 'audio/vnd.wave' => 'wav',
+        'audio/flac' => 'flac', 'audio/x-flac' => 'flac', 'audio/webm' => 'weba',
+    ];
+
     public function uploadMedia(Request $request, string $id)
     {
-        $targetId = $request->input('wall_id') ?: $id;
-
-        // If target is ezsheet (draft mode before wall publication), delegate to uploadEzsheetFile
-        if ($targetId === 'ezsheet' || $id === 'ezsheet') {
-            return $this->uploadEzsheetFile($request);
-        }
-
-        $wall = $this->wall((string) $targetId);
+        // item 15: the route id is authoritative (no body 'wall_id' override, no
+        // 'ezsheet' delegation to an unauthenticated uploader) and an upload
+        // never creates a wall.
+        $wall = $this->wall((string) $id, false);
 
         if (!$wall) {
             return response()->json([
@@ -1586,19 +1594,15 @@ class WallController extends Controller
             ], 422);
         }
 
-        $kind = 'file';
-        if ($isImage) {
-            $kind = 'image';
-            if (!$ext) $ext = 'jpg';
-        } elseif ($isVideo) {
-            $kind = 'video';
-            if (!$ext) $ext = 'mp4';
-        } elseif ($isAudio) {
-            $kind = 'audio';
-            if (!$ext) $ext = 'mp3';
-        } elseif ($isPdf) {
-            $kind = 'pdf';
-            if (!$ext) $ext = 'pdf';
+        $kind = $isPdf ? 'pdf' : ($isImage ? 'image' : ($isVideo ? 'video' : 'audio'));
+        // item 15: the stored extension comes from the sniffed type, never from
+        // the client name (a client ".php"/".phtml" name can no longer land in public/).
+        $ext = $isPdf ? 'pdf' : (self::MEDIA_EXT[$sniffedMime] ?? null);
+        if ($ext === null) {
+            return response()->json([
+                'success' => false,
+                'error'   => "Unsupported media format ({$sniffedMime}).",
+            ], 422);
         }
 
         // Target directory: public/upload/wall/<slug>/
@@ -1634,98 +1638,12 @@ class WallController extends Controller
      */
     public function uploadEzsheetFile(Request $request)
     {
-        $hasFile = $request->hasFile('file');
-        $hasData = $request->filled('data');
-
-        if (!$hasFile && !$hasData) {
-            return response()->json([
-                'success' => false,
-                'message' => 'No file or data provided',
-            ], 422);
-        }
-
-        try {
-            $userId = Auth::id() ?? 0;
-            $targetDir = public_path('upload/ezsheet');
-            if (!file_exists($targetDir)) {
-                @mkdir($targetDir, 0755, true);
-            }
-            $uploadsTargetDir = public_path('uploads/ezsheet');
-            if (!file_exists($uploadsTargetDir)) {
-                @mkdir($uploadsTargetDir, 0755, true);
-            }
-            $storageTargetDir = storage_path('app/public/upload/ezsheet');
-            if (!file_exists($storageTargetDir)) {
-                @mkdir($storageTargetDir, 0755, true);
-            }
-
-            if ($hasFile) {
-                $file = $request->file('file');
-                $originalName = $file->getClientOriginalName();
-                $extension = strtolower($file->getClientOriginalExtension());
-                if (!$extension) {
-                    $extension = strtolower(pathinfo($originalName, PATHINFO_EXTENSION));
-                }
-                $safeName = Str::slug(pathinfo($originalName, PATHINFO_FILENAME), '_') ?: 'file';
-                $filename = 'ezsheet_' . ($userId ? 'user_' . $userId . '_' : '') . time() . '_' . Str::random(6) . '_' . $safeName . '.' . ($extension ?: 'bin');
-
-                $file->move($targetDir, $filename);
-                @copy($targetDir . '/' . $filename, $uploadsTargetDir . '/' . $filename);
-                if (file_exists($storageTargetDir)) {
-                    @copy($targetDir . '/' . $filename, $storageTargetDir . '/' . $filename);
-                }
-
-                $mimeType = @mime_content_type($targetDir . '/' . $filename) ?: $file->getClientMimeType();
-                $size = @filesize($targetDir . '/' . $filename);
-            } else {
-                $originalName = (string) $request->input('filename', 'uploaded_file');
-                $rawMime = (string) $request->input('mime_type', 'application/octet-stream');
-                $extension = strtolower(pathinfo($originalName, PATHINFO_EXTENSION));
-                if (!$extension) {
-                    $extMap = [
-                        'image/png' => 'png', 'image/jpeg' => 'jpg', 'image/gif' => 'gif', 'image/webp' => 'webp',
-                        'application/pdf' => 'pdf', 'text/html' => 'html', 'video/mp4' => 'mp4', 'audio/mpeg' => 'mp3',
-                    ];
-                    $extension = $extMap[$rawMime] ?? 'bin';
-                }
-                $safeName = Str::slug(pathinfo($originalName, PATHINFO_FILENAME), '_') ?: 'file';
-                $filename = 'ezsheet_' . ($userId ? 'user_' . $userId . '_' : '') . time() . '_' . Str::random(6) . '_' . $safeName . '.' . $extension;
-
-                $data = $request->input('data');
-                if (preg_match('/^data:([^;]+);base64,(.+)$/', $data, $matches)) {
-                    $rawMime = $matches[1];
-                    $binaryData = base64_decode($matches[2]);
-                } else {
-                    $binaryData = base64_decode($data);
-                }
-
-                file_put_contents($targetDir . '/' . $filename, $binaryData);
-                @copy($targetDir . '/' . $filename, $uploadsTargetDir . '/' . $filename);
-                if (file_exists($storageTargetDir)) {
-                    @copy($targetDir . '/' . $filename, $storageTargetDir . '/' . $filename);
-                }
-
-                $mimeType = $rawMime;
-                $size = strlen($binaryData);
-            }
-
-            $publicUrl = '/upload/ezsheet/' . $filename;
-
-            return response()->json([
-                'success' => true,
-                'message' => 'File uploaded and stored in ezsheet folder successfully',
-                'url' => $publicUrl,
-                'filename' => $originalName,
-                'extension' => $extension,
-                'mime_type' => $mimeType,
-                'size' => $size,
-            ]);
-        } catch (\Exception $e) {
-            Log::error('uploadEzsheetFile error: ' . $e->getMessage());
-            return response()->json([
-                'success' => false,
-                'message' => 'Failed to upload ezsheet file: ' . $e->getMessage(),
-            ], 500);
-        }
+        // item 15: removed. It accepted files from anyone, kept the client
+        // extension and wrote into public/ (stored XSS / possible PHP execution).
+        // Routes are gone too; this stub only answers stale callers.
+        return response()->json([
+            'success' => false,
+            'error'   => 'Gone: upload media from your wall (POST /api/wall/{id}/media).',
+        ], 410);
     }
 }
