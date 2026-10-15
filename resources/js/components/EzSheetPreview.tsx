@@ -1893,6 +1893,22 @@ function ezShowSignIn(){
   if(si) si.hidden = false;
   if(dr) dr.hidden = true;
 }
+/* item 20: the wall's sign-in prompt opens the sign-in popover next to the cursor (no page change) */
+(function(){
+  var a = $('mediaSignIn') && $('mediaSignIn').querySelector('a');
+  if(!a) return;
+  a.addEventListener('click', function(e){
+    if(!window.WallCore || typeof WallCore.signIn !== 'function' || e.metaKey || e.ctrlKey || e.shiftKey) return;
+    e.preventDefault();
+    WallCore.signIn({ x: e.clientX, y: e.clientY }, 'Sign in to upload').then(function(ok){
+      if(!ok) return;
+      window.EZ_AUTHED = true;
+      var si = $('mediaSignIn'), dr = $('mediaDrop');
+      if(si) si.hidden = true;
+      if(dr) dr.hidden = false;
+    });
+  });
+})();
 try{
   fetch('/api/wall/auth/me', { credentials: 'same-origin', headers: { 'Accept': 'application/json' } })
     .then(function(r){ return r.ok ? r.json() : null; })

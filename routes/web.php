@@ -245,21 +245,28 @@ Route::domain('a21.nug8.com')->group(function ($subdomain) {
 })->name('builder');
 });
 
+// item 21: magic-link landing (signs in, regenerates the session, returns to the wall)
+Route::get('/login/magic/{token}', [\App\Http\Controllers\MagicLinkController::class, 'consume'])->middleware('throttle:30,1')->name('login.magic');
+
 Route::prefix('wall/auth')->group(function () {
-    Route::post('send-otp', [\App\Http\Controllers\Api\WallController::class, 'sendOtp'])->name('wall.auth.send-otp');
-    Route::post('verify-otp', [\App\Http\Controllers\Api\WallController::class, 'verifyOtp'])->name('wall.auth.verify-otp');
+    Route::post('send-otp', [\App\Http\Controllers\MagicLinkController::class, 'send'])->name('wall.auth.send-otp'); // item 21: magic link
+    Route::post('verify-otp', [\App\Http\Controllers\MagicLinkController::class, 'verify'])->name('wall.auth.verify-otp');
     Route::get('me', [\App\Http\Controllers\Api\WallController::class, 'authMe'])->name('wall.auth.me');
 });
 
 Route::prefix('api/wall')->middleware(['web'])->group(function () {
-    Route::post('auth/send-otp', [\App\Http\Controllers\Api\WallController::class, 'sendOtp']);
-    Route::post('auth/verify-otp', [\App\Http\Controllers\Api\WallController::class, 'verifyOtp']);
+    Route::post('auth/send-otp', [\App\Http\Controllers\MagicLinkController::class, 'send']);
+    Route::post('auth/verify-otp', [\App\Http\Controllers\MagicLinkController::class, 'verify']);
+    Route::post('auth/magic/send', [\App\Http\Controllers\MagicLinkController::class, 'send']); // item 21
+    Route::post('auth/magic/verify', [\App\Http\Controllers\MagicLinkController::class, 'verify']); // item 21
     Route::get('auth/me', [\App\Http\Controllers\Api\WallController::class, 'authMe']);
     Route::post('{id}/settings', [\App\Http\Controllers\Api\WallController::class, 'saveSettings']);
     Route::get('{id}/settings', [\App\Http\Controllers\Api\WallController::class, 'getCards']);
     Route::post('{id}/push-to-wall', [\App\Http\Controllers\Api\WallController::class, 'pushToWall']);
     Route::get('{id}/sheet', [\App\Http\Controllers\Api\WallController::class, 'getSheet']);
     Route::get('{id}/sheet/download', [\App\Http\Controllers\Api\WallController::class, 'downloadSheet']);
+    Route::post('{id}/cards/{cid}/media', [\App\Http\Controllers\Api\WallController::class, 'uploadCowikiMedia'])->middleware('throttle:30,1'); // item 18
+    Route::post('{id}/cards/{cid}/pin', [\App\Http\Controllers\Api\WallController::class, 'pin'])->middleware('throttle:60,1'); // item 19
     Route::post('{id}/media', [\App\Http\Controllers\Api\WallController::class, 'uploadMedia'])->middleware('throttle:30,1');
     Route::post('upload-ezsheet-file', [\App\Http\Controllers\Api\WallController::class, 'uploadEzsheetFile'])->middleware('throttle:30,1');
     // pass 2/3: reorder removed, always 410 Gone (order comes from the EzSheet push).

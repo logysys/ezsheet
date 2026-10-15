@@ -79,8 +79,8 @@ Route::prefix('comments')->group(function () {
 });
 
 Route::middleware(['web'])->prefix('wall/auth')->group(function () {
-    Route::post  ('send-otp',   [WallController::class, 'sendOtp']);
-    Route::post  ('verify-otp', [WallController::class, 'verifyOtp']);
+    Route::post  ('send-otp',   [\App\Http\Controllers\MagicLinkController::class, 'send']);   // item 21
+    Route::post  ('verify-otp', [\App\Http\Controllers\MagicLinkController::class, 'verify']);
     Route::get   ('me',         [WallController::class, 'authMe']);
 });
 
@@ -99,7 +99,9 @@ Route::middleware(['web'])->prefix('wall')->group(function () {
         Route::post  ('{id}/cards',               [WallController::class, 'addCard']);
         Route::delete('{id}/cards',               [WallController::class, 'dropAllCards']);
         Route::delete('{id}/cards/{cid}',         [WallController::class, 'dropCard']);
+        Route::post  ('{id}/cards/{cid}/media',   [WallController::class, 'uploadCowikiMedia'])->middleware('throttle:30,1'); // item 18
         Route::post  ('{id}/cards/{cid}/approve', [WallController::class, 'approve']);
+        Route::post  ('{id}/cards/{cid}/pin',     [WallController::class, 'pin'])->middleware('throttle:60,1'); // item 19
         Route::get   ('{id}/review',              [WallController::class, 'review']);
         Route::post  ('{id}/settings',            [WallController::class, 'saveSettings']);
         Route::get   ('{id}/settings',            [WallController::class, 'getCards']);

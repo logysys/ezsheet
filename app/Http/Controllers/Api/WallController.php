@@ -195,7 +195,25 @@ class WallController extends Controller
             'at'          => (int) $at,
             'approved_at' => $this->toTimestampMs($c->approved_at),
             'ip'          => substr((string) ($c->ip_hash ?? ''), 0, 8),
+            'author'      => $this->authorName($c->user_id),
         ];
+    }
+
+    /** item 16: first word of the author's name for the bead preview (null for anonymous). */
+    private function authorName($userId): ?string
+    {
+        if (!$userId) {
+            return null;
+        }
+        // per-request cache (no static: long-running workers would serve stale names)
+        $bag = request()->attributes;
+        $names = (array) $bag->get('ez_author_names', []);
+        if (!array_key_exists($userId, $names)) {
+            $full = trim((string) \App\Models\User::whereKey($userId)->value('name'));
+            $names[$userId] = $full === '' ? null : mb_substr(preg_split('/\s+/', $full)[0], 0, 24);
+            $bag->set('ez_author_names', $names);
+        }
+        return $names[$userId];
     }
 
     /**
@@ -209,12 +227,73 @@ class WallController extends Controller
 
     private const ZONE_ORDER = ['a' => 0, 'b' => 1, 'c' => 2];
 
-    /** The one canonical ordering, used by getCards, push, every write response, and SSE. */
+    /** item 19: why a card cannot be pinned, or null when it can. */
+    private function pinRefusal(WallCard $c, ?WallCard $mother = null): ?string
+    {
+        if ($c->isMother()) {
+            return ((string) ($c->zone ?? 'b')) === 'b' ? null : 'pin_zone';
+        }
+        if ($c->status === 'pending') {
+            return 'pin_not_approved';
+        }
+        if (!$mother || ((string) ($mother->zone ?? 'b')) !== 'b') {
+            return 'pin_zone';
+        }
+        return null;
+    }
+
+    private function motherOf(WallCard $c, $all = null): ?WallCard
+    {
+        if ($c->isMother()) {
+            return null;
+        }
+        $list = $all ?? WallCard::where('wall_id', $c->wall_id)->get();
+        foreach ($list as $m) {
+            if ($m->isMother() && (($c->mother_id && (int) $m->id === (int) $c->mother_id) || (!$c->mother_id && $c->anchor && (string) $m->cid === (string) $c->anchor))) {
+                return $m;
+            }
+        }
+        return null;
+    }
+
+    /** item 19: keep only pins whose card still exists and is pinnable. */
+    private function prunePins(Wall $w, array $pins): array
+    {
+        $all = WallCard::where('wall_id', $w->id)->get();
+        $byCid = $all->keyBy(fn ($c) => (string) $c->cid);
+        $out = [];
+        foreach ($pins as $cid => $at) {
+            $c = $byCid[(string) $cid] ?? null;
+            if ($c && $this->pinRefusal($c, $this->motherOf($c, $all)) === null) {
+                $out[(string) $cid] = (int) $at;
+            }
+        }
+        return $out;
+    }
+
+    private function pinsOf(Wall $w): array
+    {
+        $meta = Wall::whereKey($w->id)->value('meta');
+        $meta = is_string($meta) ? json_decode($meta, true) : (array) $meta;
+        return is_array($meta['pins'] ?? null) ? $meta['pins'] : [];
+    }
+
+    /** The one canonical ordering, used by getCards, push, every write response, and SSE.
+     *  item 19: pinned Content mothers first (newest pin first), each with its whole family;
+     *  a pinned (approved) child sits right after its mother. */
     private function orderedCards(Wall $w): array
     {
         $all = WallCard::where('wall_id', $w->id)->get();
+        $pins = $this->pinsOf($w);
+        if ($pins) {
+            $pins = array_filter($pins, function ($at, $cid) use ($all) {
+                $c = $all->first(fn ($x) => (string) $x->cid === (string) $cid);
+                return $c && $this->pinRefusal($c, $this->motherOf($c, $all)) === null;
+            }, ARRAY_FILTER_USE_BOTH);
+        }
+        $pinOf = fn ($c) => (int) ($pins[(string) $c->cid] ?? 0);
         $mothers = $all->filter(fn ($c) => $c->isMother())
-            ->sortBy(fn ($c) => sprintf('%d-%010d-%012d', self::ZONE_ORDER[$c->zone] ?? 9, (int) $c->position, $c->id));
+            ->sortBy(fn ($c) => sprintf('%d-%d-%015d-%010d-%012d', self::ZONE_ORDER[$c->zone] ?? 9, $pinOf($c) ? 0 : 1, $pinOf($c) ? 999999999999999 - $pinOf($c) : 0, (int) $c->position, $c->id));
         $byMother = [];
         $orphans = [];
         $motherCids = $mothers->pluck('id', 'cid');
@@ -224,7 +303,7 @@ class WallController extends Controller
             if ($mid) { $byMother[$mid][] = $c; } else { $orphans[] = $c; }
         }
         $cardTs = fn ($c) => $this->toTimestampMs($c->created_at) ?? 0;
-        $newest = fn ($a, $b) => [$cardTs($b), $b->id] <=> [$cardTs($a), $a->id];
+        $newest = fn ($a, $b) => [$pinOf($b), $cardTs($b), $b->id] <=> [$pinOf($a), $cardTs($a), $a->id];
 
         $out = [];
         foreach ($mothers as $m) {
@@ -242,7 +321,11 @@ class WallController extends Controller
         usort($orphans, $newest);
         foreach ($orphans as $o) $out[] = $o;
 
-        return array_map(fn ($c) => $this->cardJson($c), $out);
+        return array_map(function ($c) use ($pinOf) {
+            $j = $this->cardJson($c);
+            $j['pinned'] = $pinOf($c) ?: null;
+            return $j;
+        }, $out);
     }
 
     private function rev(Wall $w): int
@@ -253,10 +336,23 @@ class WallController extends Controller
     }
 
     /** Increment walls.meta.rev under a row lock. Call inside the write transaction. */
-    private function bumpRev(Wall $w): int
+    private function bumpRev(Wall $w, ?callable $mutate = null): int
     {
         $locked = Wall::whereKey($w->id)->lockForUpdate()->first();
         $meta = $locked->meta ?? [];
+        if (is_string($meta)) {
+            $meta = json_decode($meta, true) ?: [];
+        }
+        if ($mutate) {
+            $meta = $mutate($meta);
+        }
+        // item 19: a pin only survives while its card is pinnable (deleted / unapproved / moved => cleared)
+        if (!empty($meta['pins']) && is_array($meta['pins'])) {
+            $meta['pins'] = $this->prunePins($w, $meta['pins']);
+            if (!$meta['pins']) {
+                unset($meta['pins']);
+            }
+        }
         $meta['rev'] = (int) ($meta['rev'] ?? 0) + 1;
         $locked->meta = $meta;
         $locked->save();
@@ -403,6 +499,7 @@ class WallController extends Controller
                 'flybees'     => $wall->flybees ?? ($meta['flybees'] ?? null),
                 'sound'       => $wall->sound ?? ($meta['sound'] ?? null),
                 'language'    => $wall->language ?? ($meta['language'] ?? null),
+                'view'        => ($meta['view'] ?? 'cards') === 'beads' ? 'beads' : 'cards',
                 'meta'        => $meta,
             ]);
         } catch (\Throwable $e) {
@@ -525,6 +622,14 @@ class WallController extends Controller
                 $meta['fx']['snd'] = $snd;
             }
 
+            // item 16: display view (owner-set), Cards (default) or Beads
+            if ($r->has('view')) {
+                $view = (string) $r->input('view');
+                if (in_array($view, ['cards', 'beads'], true)) { // item 22: unknown values are ignored
+                    $meta['view'] = $view;
+                }
+            }
+
             // 9. Language selected
             if ($r->has('language') || $r->has('lang')) {
                 $lang = (string) ($r->input('language') ?: $r->input('lang'));
@@ -625,12 +730,25 @@ class WallController extends Controller
             ], 422);
         }
 
+        $card = $this->createChild($wall, $mother, $raw, $r);
+        if (!$card) {
+            return response()->json(['error' => 'db_error', 'message' => 'Could not save card'], 500);
+        }
+
+        $this->touch($wall);
+
+        return response()->json(['success' => true, 'card' => $this->cardJson($card)] + $this->snapshot($wall), 201);
+    }
+
+    /** One Co-WiKi child under $mother: owner = approved, everyone else = pending. */
+    private function createChild(Wall $wall, WallCard $mother, string $raw, Request $r): ?WallCard
+    {
         $isOwner = $this->isOwner($wall, $r);
         $userId = $this->currentUserId($r);
         $me = $this->meHash($r);
 
         try {
-            $card = DB::transaction(function () use ($wall, $mother, $userId, $me, $r, $raw, $isOwner) {
+            return DB::transaction(function () use ($wall, $mother, $userId, $me, $r, $raw, $isOwner) {
                 $card = WallCard::create([
                     'wall_id'     => $wall->id,
                     'user_id'     => $userId,
@@ -652,12 +770,71 @@ class WallController extends Controller
             });
         } catch (\Throwable $e) {
             \Log::error('WallCard::create failed: ' . $e->getMessage());
+            return null;
+        }
+    }
+
+    /* ---------- POST /api/wall/{id}/cards/{cid}/media (item 18) ----------
+       Signed-in users upload one media file as a new Co-WiKi child of the WiKi
+       card {cid}. Same rules as addCard: Content-zone mothers only, pending until
+       the owner approves (owner uploads are approved). Never creates a wall or a mother. */
+    public function uploadCowikiMedia(Request $r, string $slug, string $cid)
+    {
+        if ($deny = SafeUpload::guard($r)) {
+            return $deny;
+        }
+        $wall = $this->wall($slug, false);
+        if (!$wall) {
+            return response()->json(['error' => 'not-found'], 404);
+        }
+        $meta = is_array($wall->meta) ? $wall->meta : [];
+        if (($meta['cowiki'] ?? true) === false) {
+            return response()->json(['error' => 'cowiki_off', 'message' => 'This wall does not accept Co-WiKi cards.'], 403);
+        }
+        $mother = WallCard::where('wall_id', $wall->id)->where('cid', $cid)->first();
+        if (!$mother) {
+            return response()->json(['error' => 'anchor_not_found', 'message' => 'That card no longer exists. Reload the wall.'], 422);
+        }
+        if (!$mother->isMother()) {
+            return response()->json(['error' => 'anchor_not_mother', 'message' => 'Co-WiKi cards attach to a WiKi card, not to another Co-WiKi card.'], 422);
+        }
+        if (($mother->zone ?? 'b') !== 'b') {
+            return response()->json(['error' => 'anchor_zone', 'message' => 'Topic and InfoMercial cards do not take Co-WiKi cards.'], 422);
+        }
+        if (WallCard::where('wall_id', $wall->id)->where('status', 'pending')->count() >= 500) {
+            return response()->json(['error' => 'limit_exceeded', 'message' => 'Pending cards limit reached (maximum 500 pending cards allowed).'], 422);
+        }
+        if (!$r->hasFile('file')) {
+            return response()->json(['error' => 'no_file', 'message' => 'No file provided.'], 422);
+        }
+        $res = SafeUpload::store($r->file('file'), 'cowiki');
+        if (!is_array($res)) {
+            return response()->json(['error' => 'bad_file', 'message' => $res], 422);
+        }
+        $card = $this->createChild($wall, $mother, self::mediaRaw($res, (string) $r->file('file')->getClientOriginalName()), $r);
+        if (!$card) {
+            @unlink(public_path(ltrim($res['url'], '/')));
             return response()->json(['error' => 'db_error', 'message' => 'Could not save card'], 500);
         }
-
         $this->touch($wall);
+        return response()->json(['success' => true, 'card' => $this->cardJson($card), 'media' => $res] + $this->snapshot($wall), 201);
+    }
 
-        return response()->json(['success' => true, 'card' => $this->cardJson($card)] + $this->snapshot($wall), 201);
+    /** Card content for an uploaded file (URLs are server-made; the name is escaped). */
+    private static function mediaRaw(array $res, string $name): string
+    {
+        $u = htmlspecialchars($res['url'], ENT_QUOTES);
+        $n = htmlspecialchars(mb_substr($name, 0, 120), ENT_QUOTES);
+        switch ($res['kind']) {
+            case 'image':
+                return $res['url'];
+            case 'video':
+                return '<video src="' . $u . '" controls playsinline preload="metadata" style="width:100%;display:block;background:#000"></video>';
+            case 'audio':
+                return '<div style="padding:14px;background:linear-gradient(135deg,#0f172a,#1e1b4b);color:#fff;font:600 12px sans-serif"><div style="margin-bottom:8px">🎵 ' . $n . '</div><audio src="' . $u . '" controls preload="metadata" style="width:100%"></audio></div>';
+            default:
+                return '<div style="padding:14px;font:600 13px sans-serif;background:#fff">📄 ' . $n . ' <a href="' . $u . '" target="_blank" rel="noopener">Open PDF ↗</a></div>';
+        }
     }
 
     private function looksRenderable(string $raw): bool
@@ -768,6 +945,47 @@ class WallController extends Controller
         return response()->json(['ok' => true, 'card' => $this->cardJson($card->fresh())] + $this->snapshot($wall));
     }
 
+    /* ---------- POST /api/wall/{id}/cards/{cid}/pin  (item 19, owner only) ---------- */
+
+    public function pin(Request $r, string $slug, string $cid)
+    {
+        $wall = $this->wall($slug, false);
+        if (!$wall) {
+            return response()->json(['error' => 'not-found'], 404);
+        }
+        if (!$this->isOwner($wall, $r)) {
+            return response()->json(['error' => 'denied', 'message' => 'Only the wall owner can pin cards.'], 403);
+        }
+        $card = WallCard::where('wall_id', $wall->id)->where('cid', $cid)->first();
+        if (!$card) {
+            return response()->json(['error' => 'not-found'], 404);
+        }
+        $on = $r->boolean('pinned', true);
+        if ($on) {
+            $why = $this->pinRefusal($card, $this->motherOf($card));
+            if ($why) {
+                $msg = $why === 'pin_not_approved' ? 'Only approved Co-WiKi cards can be pinned.' : 'Only Content cards can be pinned.';
+                return response()->json(['error' => $why, 'message' => $msg], 422);
+            }
+        }
+        $at = (int) (microtime(true) * 1000);
+        DB::transaction(function () use ($wall, $cid, $on, $at) {
+            $this->bumpRev($wall, function (array $meta) use ($cid, $on, $at) {
+                $pins = is_array($meta['pins'] ?? null) ? $meta['pins'] : [];
+                if ($on) {
+                    $pins[(string) $cid] = $at;
+                } else {
+                    unset($pins[(string) $cid]);
+                }
+                $meta['pins'] = $pins;
+                return $meta;
+            });
+        });
+        $this->touch($wall);
+
+        return response()->json(['ok' => true, 'pinned' => $on ? $at : null] + $this->snapshot($wall));
+    }
+
     /* ---------- GET /api/wall/{id}/review ---------- */
 
     public function review(Request $r, string $slug)
@@ -809,173 +1027,7 @@ class WallController extends Controller
         ]);
     }
 
-    /* ---------- OTP Login for Wall Cards & Website ---------- */
-
-    /**
-     * Send 4-digit OTP to visitor's email for instant login
-     */
-    public function sendOtp(Request $request)
-    {
-        $request->validate([
-            'email' => 'required|email',
-        ]);
-
-        $email = strtolower(trim($request->email));
-        // Generate 4-digit OTP
-        $otp = str_pad((string) rand(0, 9999), 4, '0', STR_PAD_LEFT);
-        $expiresAt = now()->addMinutes(15);
-
-        // Store or update in database
-        EmailVerification::updateOrCreate(
-            ['email' => $email],
-            [
-                'otp'           => $otp,
-                'attempts'      => 0,
-                'is_verified'   => false,
-                'is_subscribed' => false,
-                'expires_at'    => $expiresAt,
-            ]
-        );
-
-        // Store in cache for fast lookup
-        Cache::put('wall_otp_' . $email, [
-            'code'     => $otp,
-            'attempts' => 0,
-        ], $expiresAt);
-
-        // Send email with 4-digit OTP
-        try {
-            $emaildesign = Emaildesign::where('id', 11)->first();
-            $template = $emaildesign ? $emaildesign['design'] : '<p>Your 4-digit login PIN code is: <strong>{pincode}</strong></p>';
-            $content = str_replace('{pincode}', $otp, $template);
-            $mailData = ['design' => $content];
-            $subject = "Ez.wiki Your 4-Digit Login Code";
-
-            try {
-                Mail::to($email)->send(new Eznew($mailData, $subject));
-                if (method_exists(Mail::class, 'getSymfonyTransport')) {
-                    @Mail::getSymfonyTransport()->stop();
-                }
-            } catch (\Throwable $e) {
-                @mail($email, $subject, $content, "Content-Type: text/html\r\n", 'funnel@ez.wiki');
-            }
-        } catch (\Throwable $e) {
-            \Log::warning('WallController OTP mail dispatch failed: ' . $e->getMessage());
-        }
-
-        return response()->json([
-            'success'   => true,
-            'message'   => 'A 4-digit code has been sent to your email.',
-            'email'     => $email,
-            // Include OTP in debug/local testing so users can verify instantly
-            'debug_otp' => config('app.debug', true) ? $otp : null,
-        ]);
-    }
-
-    /**
-     * Verify 4-digit OTP, auto-create user if not exists, and log in to website
-     */
-    public function verifyOtp(Request $request)
-    {
-        $request->validate([
-            'email' => 'required|email',
-            'otp'   => 'required|digits:4',
-        ]);
-
-        $email = strtolower(trim($request->email));
-        $cacheKey = 'wall_otp_' . $email;
-        $stored = Cache::get($cacheKey);
-
-        $dbRecord = EmailVerification::where('email', $email)
-            ->where('expires_at', '>', now())
-            ->first();
-
-        $expectedOtp = $stored['code'] ?? ($dbRecord ? $dbRecord->otp : null);
-
-        if (!$expectedOtp) {
-            return response()->json([
-                'success' => false,
-                'message' => 'The OTP code has expired or was not requested. Please request a new code.',
-            ], 400);
-        }
-
-        if ((string) $expectedOtp !== (string) $request->otp) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Invalid 4-digit code. Please check your email and try again.',
-            ], 422);
-        }
-
-        // OTP is valid - clear verification
-        Cache::forget($cacheKey);
-        if ($dbRecord) {
-            $dbRecord->update(['is_verified' => true]);
-        }
-
-        // Find existing user or automatically create new user
-        $user = User::where('email', $email)->first();
-        $isNewUser = false;
-
-        if (!$user) {
-            $isNewUser = true;
-            $username = explode('@', $email)[0];
-            // Ensure unique username
-            $baseName = $username;
-            $counter = 1;
-            while (User::where('name', $username)->exists()) {
-                $username = $baseName . $counter;
-                $counter++;
-            }
-
-            $user = User::create([
-                'name'              => $username,
-                'email'             => $email,
-                'email_verified_at' => now(),
-                'password'          => Hash::make(Str::random(32)),
-            ]);
-        }
-
-        // Automatically log user into website session
-        Auth::login($user, true);
-
-        $guestToken = 'guest_' . Str::random(40);
-        Cache::put('guest_token_' . $guestToken, [
-            'id'    => (int) $user->id,
-            'name'  => (string) $user->name,
-            'email' => (string) $user->email,
-        ], 86400 * 30);
-
-        if ($request->hasSession()) {
-            $request->session()->regenerate();
-            $request->session()->put('wall_guest_user', [
-                'id'    => (int) $user->id,
-                'name'  => (string) $user->name,
-                'email' => (string) $user->email,
-            ]);
-        }
-
-        $token = null;
-        if (method_exists($user, 'createToken')) {
-            try {
-                $token = $user->createToken('wall-session')->plainTextToken;
-            } catch (\Throwable $e) {
-                // Sanctum token optional
-            }
-        }
-
-        return response()->json([
-            'success'      => true,
-            'message'      => $isNewUser ? 'Account created and logged in!' : 'Welcome back! You are now logged in.',
-            'is_new_user'  => $isNewUser,
-            'user'         => [
-                'id'    => (int) $user->id,
-                'name'  => (string) $user->name,
-                'email' => (string) $user->email,
-            ],
-            'token'        => $token,
-            'guest_token'  => $guestToken,
-        ]);
-    }
+    /* item 21: the 4-digit OTP (sendOtp / verifyOtp, debug_otp) was replaced by App\Http\Controllers\MagicLinkController. */
 
     /**
      * Get currently authenticated user status

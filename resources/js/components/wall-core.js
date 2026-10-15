@@ -554,7 +554,9 @@ function toolsHTML(o){
     ?'<button class="ins" data-act="ins" title="'+esc(t('insCard'))+'" aria-label="'+esc(t('insCard'))+'" data-i18n-aria="insCard">\uFF0B</button>':'';
   const del=(child&&ezCanDelete(Object.assign({},o,{role:'child'}),ezCtx()))
     ?'<button class="gdel del-card" data-act="del" title="'+esc(t('del')||'Delete')+'" aria-label="'+esc(t('del')||'Delete')+'" data-i18n-aria="del">\u2212</button>':'';
-  return '<div class="card-tools">'+ins+del+'</div>';
+  const pc=ezCanPin(Object.assign({},o,{role:child?'child':'mother'}),ezCtx());
+  const pin=pc?'<button class="pin" data-act="pin" aria-pressed="'+(o.pinned?'true':'false')+'" title="'+(o.pinned?'Unpin':'Pin to top')+'" aria-label="'+(o.pinned?'Unpin':'Pin to top')+'">📌</button>':'';
+  return '<div class="card-tools">'+ins+del+pin+'</div>';
 }
 function cardHTML(o,ro){
   const tomb=isTomb(o);
@@ -567,7 +569,7 @@ function cardHTML(o,ro){
   /* ✎ opens EzSheet at this mother card; mothers are edited/deleted only there */
   const edit=(!ro&&isOwner&&!child)?'<button class="edit" data-act="edit" aria-label="'+esc(t('edit'))+'">✎</button>':'';
   const tools=toolsHTML(o)+(ro?grips:tog+edit+grips);
-  const cls=' '+(child?'child guest '+(o.ok?'ok':'pending'):'mother');
+  const cls=' '+(child?'child guest '+(o.ok?'ok':'pending'):'mother')+(o.pinned?' pinned':'');
   return `<div class="item${tomb?' tomb':''}${cls}" data-id="${esc(o._id)}"${o.cid?` data-cid="${esc(o.cid)}"`:''} style="width:${o.w}px;height:${o.h}px">${cornerHTML(o)}${ro?'':'<div class="corner-dim">'+o.w+'×'+o.h+'</div>'}${tomb?tombHTML(o):(LAZY?phHTML(o):frameHTML(o))}${fold}${tools}</div>`;
 }
 
@@ -717,8 +719,8 @@ function resizeStart(a,el,o,side,ev,onDone){
 let insBox=null;
 function insClose(){if(insBox){insBox.remove();insBox=null;}}
 /* 插卡對話框：貼上 → 檢查 → 可以呈現才交給 onSave */
-function insertDialog(guest,onSave){
-  insClose();
+function insertDialog(guest,onSave,opt){
+  insClose();opt=opt||{};
   const box=document.createElement('div');
   box.className='ins-modal';box.id='insModal';
   box.innerHTML='<div class="ins-card" role="dialog" aria-modal="true" aria-labelledby="insHead">'
@@ -740,6 +742,7 @@ function insertDialog(guest,onSave){
     +'<div class="ins-md-preview-body" id="insMdPreviewBody" style="font-size:13px;line-height:1.6;color:#111;overflow-wrap:anywhere"></div>'
     +'<iframe class="ins-preview-frame" id="insHtmlPreviewFrame" style="display:none;width:100%;height:180px;border:1.5px solid #e2e8f0;border-radius:8px;background:#fff" sandbox="allow-scripts allow-forms allow-popups"></iframe>'
     +'</div>'
+    +(opt.mother?'<div class="ins-up" id="insUp" aria-live="polite"><span class="ins-up-note">…</span></div>':'')
     +'<div class="ins-err" id="insErr" role="alert"></div>'
     +'<div class="ins-go"><button type="button" class="ins-btn" id="insNo" data-i18n="insCancel"></button>'
     +'<button type="button" class="ins-btn on" id="insYes" data-i18n="insSave"></button></div></div>';
@@ -757,6 +760,51 @@ function insertDialog(guest,onSave){
   const previewClose=box.querySelector('#insMdPreviewClose');
   box.addEventListener('click',e=>{if(e.target===box)insClose();});
   btnNo.addEventListener('click',insClose);
+  /* item 17: open next to the + (cursor), clamped to the viewport; bottom sheet on phones */
+  ezPlaceBox(box,opt.at);
+  if(opt.draft){const ta0=box.querySelector('#insTa');if(ta0){ta0.value=opt.draft;ta0.dispatchEvent(new Event('input'));}}
+  /* item 18: media upload into this Co-WiKi (signed-in users; pending until approved) */
+  const up=box.querySelector('#insUp');
+  if(up){
+    /* item 20: sign in right here (popover by the cursor), then this + box reopens */
+    const signIn=()=>{up.innerHTML='🔒 <a href="/login" target="_top" rel="noopener" class="ins-signin">Sign in to upload</a> <span class="ins-up-note">image, video, audio or PDF</span>';
+      const a=up.querySelector('.ins-signin');
+      a.addEventListener('click',e=>{
+        const ta=box.querySelector('#insTa'),draft=ta?ta.value:'';
+        const at=(e.clientX||e.clientY)?{x:e.clientX,y:e.clientY}:(r=>({x:r.left,y:r.bottom}))(a.getBoundingClientRect());
+        if(typeof opt.onSignIn==='function'&&!e.metaKey&&!e.ctrlKey&&!e.shiftKey){e.preventDefault();insClose();opt.onSignIn(at,draft);}
+        else ezReopenHint(opt.wallId||window.WALL_ID,opt.mother&&opt.mother.cid,draft);
+      });};
+    const pick=()=>{
+      up.innerHTML='<label class="ins-up-btn" id="insUpBtn" tabindex="0"><input type="file" id="insFile" accept="image/*,video/*,audio/*,application/pdf" hidden>📎 Upload media</label>'
+        +'<span class="ins-up-note">Image, video, audio or PDF · max 100 MB · the owner approves it</span><span class="ins-up-st" id="insUpSt"></span>';
+      const inp=up.querySelector('#insFile'),lab=up.querySelector('#insUpBtn'),st=up.querySelector('#insUpSt');
+      lab.addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();inp.click();}});
+      inp.addEventListener('change',()=>{
+        const f=inp.files&&inp.files[0];if(!f)return;
+        if(f.size>100*1024*1024){err.textContent='File exceeds the 100 MB limit.';inp.value='';return;}
+        const fd=new FormData();fd.append('file',f);
+        const x=new XMLHttpRequest();
+        x.open('POST',syncBase(opt.wallId||window.WALL_ID)+'/cards/'+encodeURIComponent(opt.mother.cid)+'/media',true);
+        x.withCredentials=true;
+        const hd=syncHeaders(false);Object.keys(hd).forEach(k=>x.setRequestHeader(k,hd[k]));
+        x.setRequestHeader('X-Requested-With','XMLHttpRequest');x.setRequestHeader('Accept','application/json');
+        lab.setAttribute('aria-disabled','true');btnYes.disabled=true;err.textContent='';st.textContent='0%';
+        const done=()=>{lab.removeAttribute('aria-disabled');btnYes.disabled=false;inp.value='';};
+        x.upload.onprogress=ev=>{if(ev.lengthComputable)st.textContent=Math.min(99,Math.round(ev.loaded/ev.total*100))+'%';};
+        x.onload=()=>{
+          let j=null;try{j=JSON.parse(x.responseText);}catch(e){}
+          if(x.status===201&&j&&j.success){st.textContent='✓';insClose();if(opt.onUploaded)opt.onUploaded(j);return;}
+          done();st.textContent='';
+          if(x.status===401){EZ_AUTH_P=Promise.resolve(false);signIn();err.textContent='Sign in to upload.';return;}
+          err.textContent=(j&&(j.message||j.error))||(x.status===413?'File too large for the server (HTTP 413)':x.status===429?'Too many uploads, try again in a minute':'Upload failed (HTTP '+x.status+')');
+        };
+        x.onerror=()=>{done();st.textContent='';err.textContent=t('insDown')||'Network error';};
+        x.send(fd);
+      });
+    };
+    ezAuthed().then(ok=>{if(!up.isConnected)return;ok?pick():signIn();});
+  }
 
   const checkInputState=()=>{
     const v=ta.value.trim();
@@ -1190,13 +1238,13 @@ function bindFold(){
 /* 來客卡被認可：就地換掉標記與移除鍵，iframe 不重新載入 */
 /* N 欄：依牆面寬度均分；太窄時自動降欄，每張不小於 MIN */
 function colSize(wall,n){
-  const W=wall.clientWidth;
-  const k=Math.max(1,Math.min(n,Math.floor((W+GAP)/(MIN+GAP))));
-  return {k,w:Math.max(MIN,Math.floor((W-GAP*(k-1))/k))};
+  const W=ezWallW(wall);
+  const k=Math.max(1,Math.min(n,Math.floor((W+ezGap())/(MIN+ezGap()))));
+  return {k,w:Math.max(MIN,Math.floor((W-ezGap()*(k-1))/k))};
 }
 /* 排版：cols>0 → 等寬，每張依內容定高，放進目前最短的一欄
           cols=0 → 保留各卡寬高，用 skyline 找最高能放的位置，不等寬也能緊密排 */
-function carK(W,cols){return cols>0?Math.max(1,Math.min(cols,Math.floor((W+GAP)/(MIN+GAP)))):Math.max(1,Math.min(4,Math.floor((W+GAP)/(340+GAP))));}
+function carK(W,cols){return cols>0?Math.max(1,Math.min(cols,Math.floor((W+ezGap())/(MIN+ezGap())))):Math.max(1,Math.min(4,Math.floor((W+ezGap())/(340+ezGap()))));}
 /* Old fixed-column sizing, kept only for a19.blade.php (its page script calls it). */
 function fitColumns(wall,list,n){
   const {w,h}=colSize(wall,n);
@@ -1204,40 +1252,40 @@ function fitColumns(wall,list,n){
   wall.querySelectorAll('.item').forEach(el=>{const o=list.find(x=>x._id===el.dataset.id);if(o)applySize(el,o);});
 }
 function layoutWall(wall,list,cols,car){
-  const W=wall.clientWidth,pos=new Map(),sz=new Map();let H=0;
+  const W=ezWallW(wall),pos=new Map(),sz=new Map();let H=0;
   /* pass 4: no pinned (free-dragged) cards any more; every card follows list order (6.4) */
   if(car){
     /* 輪播：一次顯示的張數＝欄位設定（隨機／原始時依寬度自動 1~4 張）。
        尺寸只用來顯示，不寫回卡片資料，關掉輪播後原本的版面不變 */
-    const k=carK(W,cols),w=Math.max(MIN,Math.floor((W-GAP*(k-1))/k));
+    const k=carK(W,cols),w=Math.max(MIN,Math.floor((W-ezGap()*(k-1))/k));
     wall._hs=[];
-    list.forEach((o,i)=>{const h=fitH(o,w,k);sz.set(o._id,{w,h});pos.set(o._id,[i*(w+GAP),0]);wall._hs.push(h);if(h>H)H=h;});
-    wall.dataset.k=k;wall._step=w+GAP;wall._n=list.length;wall._ids=list.map(o=>o._id);
+    list.forEach((o,i)=>{const h=fitH(o,w,k);sz.set(o._id,{w,h});pos.set(o._id,[i*(w+ezGap()),0]);wall._hs.push(h);if(h>H)H=h;});
+    wall.dataset.k=k;wall._step=w+ezGap();wall._n=list.length;wall._ids=list.map(o=>o._id);
   }else if(cols>0){
     /* X columns = row-order wrapping like a CSS grid (not shortest-column masonry):
        left to right, then the next row; a family that doesn't fit wraps in order. */
     const {k,w}=colSize(wall,cols);
     pos.clear();
     list.forEach(o=>{o.w=w;o.h=fitH(o,w,k);o.manual=false;o.span=0;});
-    const L=ezRowLayout(list.map(o=>o.h),k,w,GAP);
+    const L=ezRowLayout(list.map(o=>o.h),k,w,ezGap());
     list.forEach((o,i)=>pos.set(o._id,L.pos[i]));
     H=L.H;
   }else{
     /* 自由／隨機：把牆切成 G 條細欄（約 190px 一條），每張卡橫跨 1~3 條。
        隨機的卡記的是「跨幾條＋高寬比」，換螢幕寬度也會整齊貼齊左右兩邊；
        手動拉過的卡保留自己的寬度，佔用夠放它的條數 */
-    const G=Math.max(2,Math.min(8,Math.round((W+GAP)/(190+GAP)))),cw=(W-GAP*(G-1))/G,colH=new Array(G).fill(0);
+    const G=Math.max(2,Math.min(8,Math.round((W+ezGap())/(190+ezGap())))),cw=(W-ezGap()*(G-1))/G,colH=new Array(G).fill(0);
     list.forEach(o=>{
       let s;
-      if(o.span){s=Math.min(o.span,G);o.w=Math.round(s*cw+(s-1)*GAP);o.h=(o.fit||{}).t==='page'?Math.max(MIN,Math.round(o.w*(o.rh||.75))):fitH(o,o.w,2);}
-      else s=Math.min(G,Math.max(1,Math.ceil((Math.min(o.w,W)+GAP)/(cw+GAP)-.001)));
+      if(o.span){s=Math.min(o.span,G);o.w=Math.round(s*cw+(s-1)*ezGap());o.h=(o.fit||{}).t==='page'?Math.max(MIN,Math.round(o.w*(o.rh||.75))):fitH(o,o.w,2);}
+      else s=Math.min(G,Math.max(1,Math.ceil((Math.min(o.w,W)+ezGap())/(cw+ezGap())-.001)));
       if(pos.has(o._id))return;
       let bc=0,by=Infinity;
       for(let c=0;c+s<=G;c++){let y=0;for(let j=c;j<c+s;j++)if(colH[j]>y)y=colH[j];if(y<by-.5){by=y;bc=c;}}
-      const x=Math.round(bc*(cw+GAP));
-      pos.set(o._id,[x,by]);for(let j=bc;j<bc+s;j++)colH[j]=by+o.h+GAP;
+      const x=Math.round(bc*(cw+ezGap()));
+      pos.set(o._id,[x,by]);for(let j=bc;j<bc+s;j++)colH[j]=by+o.h+ezGap();
     });
-    H=Math.max(H,Math.max(0,...colH)-GAP);
+    H=Math.max(H,Math.max(0,...colH)-ezGap());
   }
   const byId=new Map(list.map(o=>[o._id,o]));
   wall.querySelectorAll('.item').forEach(el=>{
@@ -2030,7 +2078,8 @@ function fxDefaults(d){
 function fwBtnHTML(){return '<button id="fwBtn" class="pill fx" aria-pressed="false" data-i18n-aria="fxFire"><span class="mi">🎆</span></button>';}
 function flyBtnHTML(){return '<button id="flyBtn" class="pill fx" aria-pressed="true" data-i18n-aria="fxFly"><span class="mi">🐝</span></button>';}
 function sndBtnHTML(){return '<button id="sndBtn" class="pill snd" aria-pressed="true" data-i18n-aria="fxSound"><span class="mi">🔊</span></button>';}
-function fxBtnHTML(){return '<span id="fxGroup" class="fx-group">'+fwBtnHTML()+flyBtnHTML()+sndBtnHTML()+'</span>';}
+/* item 22: the fireworks toggle moved into the view icon's menu (fwBtnHTML kept for old callers) */
+function fxBtnHTML(){return '<span id="fxGroup" class="fx-group">'+flyBtnHTML()+sndBtnHTML()+'</span>';}
 /* 這面牆有沒有「放進來的東西」——圖卡、3D 卡，或自訂的飛行圖示。
    都沒有的話特效就沒有對象，MagicBar 上不擺特效鍵，特效本身也不跑。 */
 function isMediaCard(o){
@@ -2366,7 +2415,7 @@ function viewOf(list,F){
 }
 function filterActive(F){return String(F.q||'').trim()!==''||F.type!=='all'||F.date!=='any'||F.sort!=='wall';}
 function applyView(wall,list,F,more){
-  const v=viewOf(list,F),keep=new Set(v.map(o=>o._id));
+  const v=viewOf(list,F).filter(o=>!(BEADS&&ezIsChild(o))),keep=new Set(v.map(o=>o._id));
   [wall].concat(more||[]).filter(Boolean).forEach(w=>
     w.querySelectorAll('.item').forEach(el=>el.classList.toggle('f-out',!keep.has(el.dataset.id))));
   let nm=wall.querySelector('.no-match');
@@ -2566,7 +2615,7 @@ function bootReadonly(){
   const isOwner = (typeof window !== 'undefined' && window.isOwner === true) || !!(typeof ownerToken === 'function' && ownerToken());
   const globeHTML = isOwner ? '<button class="globe" onclick="openPanel()" data-i18n-aria="openEditor" title="'+esc(t('openEditor'))+'">🌍</button>' : '';
   const fabHTML = '<button id="fab" class="fab" onclick="openPanel()"><span id="idDisplay">'+esc(id||'Wall')+'</span></button>';
-  document.body.insertAdjacentHTML('afterbegin','<div class="bar-zone" id="barZone" aria-label="EzBar"><div class="fab-wrap">'+globeHTML+fabHTML+menuHTML(true)+shuffleBtnHTML()+carouselBtnHTML()+(useFilter?filterBtnHTML():'')+zoneBtnHTML()+fxBtnHTML()+syncBtnHTML()+langSelectHTML()+'</div>'+(useFilter?filterBarHTML():'')+'</div>');
+  document.body.insertAdjacentHTML('afterbegin','<div class="bar-zone" id="barZone" aria-label="EzBar"><div class="fab-wrap">'+globeHTML+fabHTML+menuHTML(true)+shuffleBtnHTML()+carouselBtnHTML()+(useFilter?filterBtnHTML():'')+zoneBtnHTML()+viewBtnHTML()+fxBtnHTML()+syncBtnHTML()+langSelectHTML()+'</div>'+(useFilter?filterBarHTML():'')+'</div>');
   if(!isOwner){document.querySelectorAll('.globe').forEach(el=>{el.style.display='none';});}
   window.__wallList = items;
   window.__wallPack = pack;
@@ -2602,6 +2651,7 @@ function bootReadonly(){
     zonePaint(zones,zoneCounts(curItems));
     wall.hidden=!zones.b;
     if(B.length)layoutWall(wall,B,mode>0?mode:0,car);else wall.style.height='';
+    beadsPaint(wall);
   }
   let raf=0;const later=()=>{if(!raf)raf=requestAnimationFrame(()=>{raf=0;pack();});};
   addEventListener('wall:relayout',later);
@@ -2725,6 +2775,9 @@ function bootReadonly(){
             apply();
           }
         }
+        /* item 22: owner's default; a visitor's own saved choice wins */
+        if(data.view === 'beads' || data.view === 'cards') VIEW_DEF = data.view;
+        setView(ezViewEffective(ezViewLocal(wallId), VIEW_DEF));
         if(typeof data.fireworks === 'boolean'){
           fxSetFw(data.fireworks, true);
         }
@@ -2771,164 +2824,121 @@ function bootReadonly(){
         }
       }
     };
-    doFetch(fetch).then(applyCards).catch(()=>{});
+    doFetch(fetch).then(applyCards).then(()=>setTimeout(reopenAfterLogin,0)).catch(()=>{});
   }
   loadCardsFromDB();
 
-  function showWallOtpModal(onSuccess){
-    let modal = document.getElementById('wallOtpModal');
-    if (modal) modal.remove();
-
-    modal = document.createElement('div');
-    modal.id = 'wallOtpModal';
-    modal.className = 'ins-modal';
-    modal.innerHTML = '<div class="ins-card wall-otp-card" role="dialog" aria-modal="true" style="max-width:390px;text-align:left;position:relative;">'
-      + '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">'
-      + '<b style="font-size:16px;color:var(--ink,#fff);">Sign in to Add Card</b>'
-      + '<button type="button" class="otp-close-btn" style="background:transparent;border:none;color:#94a3b8;font-size:20px;cursor:pointer;line-height:1;padding:4px;">✕</button>'
-      + '</div>'
-      + '<p id="otpPromptHint" class="ins-hint" style="margin-bottom:14px;color:#cbd5e1;font-size:12px;line-height:1.5;">'
-      + 'Please enter your email to sign in and insert your card on this wall.'
-      + '</p>'
-      + '<div id="otpStepEmail">'
-      + '<label style="display:block;font-size:11px;font-weight:600;text-transform:uppercase;color:#94a3b8;margin-bottom:6px;">Email Address</label>'
-      + '<input type="email" id="wallEmailInput" placeholder="yourname@domain.com" style="width:100%;box-sizing:border-box;padding:10px 12px;border-radius:6px;border:1px solid #475569;background:#0f172a;color:#fff;font-size:13px;margin-bottom:12px;outline:none;" />'
-      + '<div id="wallEmailErr" class="ins-err" style="color:#f87171;font-size:11px;margin-bottom:10px;min-height:16px;"></div>'
-      + '<div class="ins-go" style="display:flex;justify-content:flex-end;gap:8px;">'
-      + '<button type="button" class="ins-btn" id="wallEmailCancel">Cancel</button>'
-      + '<button type="button" class="ins-btn on" id="wallEmailSubmit" style="background:#0d9488;color:#fff;border-color:#0d9488;">Send 4-Digit Code</button>'
-      + '</div></div>'
-      + '<div id="otpStepVerify" style="display:none;">'
-      + '<label style="display:block;font-size:11px;font-weight:600;text-transform:uppercase;color:#94a3b8;margin-bottom:6px;">4-Digit Verification Code</label>'
-      + '<input type="text" id="wallCodeInput" maxlength="4" placeholder="••••" style="letter-spacing:10px;font-weight:bold;font-size:22px;text-align:center;width:100%;box-sizing:border-box;padding:10px 12px;border-radius:6px;border:1px solid #475569;background:#0f172a;color:#2dd4bf;margin-bottom:8px;outline:none;" />'
-      + '<div id="wallOtpDebug" style="font-size:11px;color:#2dd4bf;margin-bottom:8px;display:none;background:rgba(45,212,191,0.1);padding:4px 8px;border-radius:4px;"></div>'
-      + '<div id="wallCodeErr" class="ins-err" style="color:#f87171;font-size:11px;margin-bottom:10px;min-height:16px;"></div>'
-      + '<div class="ins-go" style="display:flex;justify-content:space-between;align-items:center;">'
-      + '<button type="button" id="wallResendOtp" style="background:transparent;border:none;color:#38bdf8;font-size:11px;cursor:pointer;text-decoration:underline;">Resend Code</button>'
-      + '<div style="display:flex;gap:8px;">'
-      + '<button type="button" class="ins-btn" id="wallCodeBack">Back</button>'
-      + '<button type="button" class="ins-btn on" id="wallCodeSubmit" style="background:#0d9488;color:#fff;border-color:#0d9488;">Verify & Log in</button>'
-      + '</div></div></div>'
-      + '</div>';
-
+  /* item 21: magic-link sign-in in the item-20 popover.
+     Step 1 email -> step 2 "Check your email" + 6-digit code. While waiting, this tab polls
+     /api/wall/auth/me (every 4 s, up to 15 min), so opening the link in another tab also continues here. */
+  function showWallOtpModal(onSuccess,opt){
+    opt=opt||{};
+    let modal=document.getElementById('wallOtpModal');
+    if(modal)modal.remove();
+    modal=document.createElement('div');
+    modal.id='wallOtpModal';modal.className='ins-modal ml';
+    modal.innerHTML='<div class="ins-card wall-otp-card" role="dialog" aria-modal="true" aria-labelledby="mlHead">'
+      +'<div class="ml-top"><b id="mlHead"></b><button type="button" class="ml-x" aria-label="Close">✕</button></div>'
+      +'<div id="mlStep1"><p class="ml-p">We will email you a sign-in link. No password needed.</p>'
+      +'<label class="ml-l" for="mlEmail">Email</label>'
+      +'<input type="email" id="mlEmail" autocomplete="email" inputmode="email" placeholder="you@example.com" class="ml-in">'
+      +'<div class="ml-err" id="mlErr1" role="alert"></div>'
+      +'<div class="ml-go"><button type="button" class="ins-btn" id="mlCancel">Cancel</button><button type="button" class="ins-btn on" id="mlSend">Email me a link</button></div></div>'
+      +'<div id="mlStep2" hidden><div class="ml-mail" aria-hidden="true">✉️</div><p class="ml-h">Check your email</p>'
+      +'<p class="ml-p" id="mlSent"></p>'
+      +'<label class="ml-l" for="mlCode">Or enter the 6-digit code</label>'
+      +'<input type="text" id="mlCode" inputmode="numeric" autocomplete="one-time-code" maxlength="6" pattern="[0-9]*" placeholder="••••••" class="ml-in ml-code">'
+      +'<div class="ml-err" id="mlErr2" role="alert"></div>'
+      +'<div class="ml-test" id="mlTest" hidden></div>'
+      +'<div class="ml-go"><button type="button" class="ml-link" id="mlBack">Use another email</button><button type="button" class="ml-link" id="mlResend">Resend</button><button type="button" class="ins-btn on" id="mlVerify">Sign in</button></div>'
+      +'<p class="ml-wait" id="mlWait">Waiting for you to open the link… this box continues by itself.</p></div>'
+      +'</div>';
     document.body.appendChild(modal);
-
-    const close = () => { modal.remove(); };
-    modal.querySelector('.otp-close-btn').onclick = close;
-    modal.querySelector('#wallEmailCancel').onclick = close;
-    modal.onclick = (e) => { if (e.target === modal) close(); };
-
-    let currentEmail = '';
-
-    const sendOtpRequest = (email) => {
-      const errEl = modal.querySelector('#wallEmailErr');
-      const submitBtn = modal.querySelector('#wallEmailSubmit');
-      errEl.textContent = '';
-      submitBtn.disabled = true;
-      submitBtn.textContent = 'Sending...';
-
-      fetch('/api/wall/auth/send-otp', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
-        body: JSON.stringify({ email: email })
-      }).then(async r => {
-        const data = await r.json().catch(() => ({}));
-        submitBtn.disabled = false;
-        submitBtn.textContent = 'Send 4-Digit Code';
-        if (!r.ok || !data.success) {
-          errEl.textContent = data.message || 'Failed to send code. Please try again.';
-          return;
-        }
-        currentEmail = email;
-        modal.querySelector('#otpStepEmail').style.display = 'none';
-        modal.querySelector('#otpStepVerify').style.display = 'block';
-        modal.querySelector('#otpPromptHint').textContent = 'We sent a 4-digit code to ' + email + '. Enter it below:';
-        if (data.debug_otp) {
-          const dbg = modal.querySelector('#wallOtpDebug');
-          dbg.style.display = 'block';
-          dbg.textContent = 'Test Code: ' + data.debug_otp;
-        }
-        const codeInp = modal.querySelector('#wallCodeInput');
-        codeInp.value = '';
-        codeInp.focus();
-      }).catch(err => {
-        submitBtn.disabled = false;
-        submitBtn.textContent = 'Send 4-Digit Code';
-        errEl.textContent = 'Network error. Please try again.';
-      });
+    modal.querySelector('#mlHead').textContent=opt.title||'Sign in';
+    ezPlaceBox(modal,opt.at);
+    const $m=sel=>modal.querySelector(sel);
+    let timer=null,deadline=0,email='',done=false;
+    const stopPoll=()=>{if(timer){clearInterval(timer);timer=null;}document.removeEventListener('visibilitychange',onVis);};
+    const close=()=>{stopPoll();modal.remove();if(typeof opt.onClose==='function')opt.onClose();};
+    const finish=user=>{
+      if(done)return;done=true;stopPoll();
+      window.auth=window.auth||{};window.auth.user=user||window.auth.user||null;
+      try{if(user)sessionStorage.setItem('ezwiki_auth',JSON.stringify({user:user}));}catch(e){}
+      EZ_AUTH_P=Promise.resolve(true);window.EZ_AUTHED=true;
+      if(opt.reopen)ezTakeReopen(opt.reopen.wallId);   /* this tab continues; drop the cross-tab hint */
+      opt.onClose=null;close();
+      if(typeof onSuccess==='function')onSuccess(window.auth.user);
     };
-
-    modal.querySelector('#wallEmailSubmit').onclick = () => {
-      const val = modal.querySelector('#wallEmailInput').value.trim();
-      if (!val || !val.includes('@')) {
-        modal.querySelector('#wallEmailErr').textContent = 'Please enter a valid email address.';
-        return;
-      }
-      sendOtpRequest(val);
+    const poll=()=>{
+      if(done)return;
+      if(Date.now()>deadline){stopPoll();$m('#mlWait').textContent='The link has expired. Resend to get a new one.';return;}
+      fetch('/api/wall/auth/me',{credentials:'same-origin',headers:{'Accept':'application/json'},cache:'no-store'})
+        .then(r=>r.ok?r.json():null).then(d=>{if(d&&d.authenticated&&d.user&&d.user.id)finish(d.user);}).catch(()=>{});
     };
-
-    modal.querySelector('#wallEmailInput').onkeydown = (e) => {
-      if (e.key === 'Enter') { e.preventDefault(); modal.querySelector('#wallEmailSubmit').click(); }
+    function onVis(){if(document.visibilityState==='visible')poll();}
+    const startPoll=()=>{stopPoll();deadline=Date.now()+15*60*1000;timer=setInterval(poll,4000);document.addEventListener('visibilitychange',onVis);};
+    const returnTo=()=>{try{const L=window.top.location;return L.pathname+L.search;}catch(e){}try{const u=new URL(document.referrer);return u.pathname+u.search;}catch(e){}return '/';};
+    const post=(url,body)=>fetch(url,{method:'POST',credentials:'same-origin',
+      headers:{'Content-Type':'application/json','Accept':'application/json','X-Requested-With':'XMLHttpRequest'},body:JSON.stringify(body)})
+      .then(async r=>({r,j:await r.json().catch(()=>({}))}));
+    const send=()=>{
+      const v=$m('#mlEmail').value.trim(),err=email?$m('#mlErr2'):$m('#mlErr1'),btn=email?$m('#mlResend'):$m('#mlSend');
+      if(!v||!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v)){$m('#mlErr1').textContent='Please enter a valid email address.';return;}
+      err.textContent='';btn.disabled=true;
+      if(opt.reopen)ezReopenHint(opt.reopen.wallId,opt.reopen.cid,opt.reopen.draft);   /* the link may open in another tab */
+      post('/api/wall/auth/magic/send',{email:v,return_to:returnTo()}).then(({r,j})=>{
+        btn.disabled=false;
+        if(!r.ok||!j.success){err.textContent=j.message||(r.status===429?'Too many requests. Please wait a few minutes.':'Could not send the email. Please try again.');return;}
+        email=v;
+        $m('#mlStep1').hidden=true;$m('#mlStep2').hidden=false;
+        $m('#mlSent').textContent='We sent a sign-in link and a 6-digit code to '+v+'. Open the link on any device, or type the code here. It expires in 15 minutes.';
+        const tl=$m('#mlTest');
+        if(j.test_link){tl.hidden=false;tl.innerHTML='Test account: <a target="_top" href="'+esc(j.test_link)+'">open sign-in link</a>';}else{tl.hidden=true;tl.textContent='';}
+        $m('#mlCode').value='';$m('#mlCode').focus();
+        startPoll();
+      }).catch(()=>{btn.disabled=false;err.textContent='Network error. Please try again.';});
     };
-
-    modal.querySelector('#wallCodeBack').onclick = () => {
-      modal.querySelector('#otpStepVerify').style.display = 'none';
-      modal.querySelector('#otpStepEmail').style.display = 'block';
-      modal.querySelector('#otpPromptHint').textContent = 'Please enter your email to sign in and insert your card on this wall.';
+    const verify=()=>{
+      const c=$m('#mlCode').value.replace(/\D/g,''),err=$m('#mlErr2'),btn=$m('#mlVerify');
+      if(c.length!==6){err.textContent='Enter all 6 digits.';return;}
+      err.textContent='';btn.disabled=true;
+      post('/api/wall/auth/magic/verify',{email:email,code:c}).then(({r,j})=>{
+        btn.disabled=false;
+        if(r.ok&&j.success){finish(j.user);return;}
+        err.textContent=j.message||(r.status===429?'Too many tries. Wait a minute.':'Wrong code.');
+        if(j.error==='locked'||j.error==='expired')$m('#mlCode').value='';
+      }).catch(()=>{btn.disabled=false;err.textContent='Network error. Please try again.';});
     };
-
-    modal.querySelector('#wallResendOtp').onclick = () => {
-      if (currentEmail) sendOtpRequest(currentEmail);
-    };
-
-    modal.querySelector('#wallCodeSubmit').onclick = () => {
-      const code = modal.querySelector('#wallCodeInput').value.trim();
-      const errEl = modal.querySelector('#wallCodeErr');
-      const submitBtn = modal.querySelector('#wallCodeSubmit');
-      errEl.textContent = '';
-      if (!code || code.length !== 4) {
-        errEl.textContent = 'Please enter all 4 digits.';
-        return;
-      }
-      submitBtn.disabled = true;
-      submitBtn.textContent = 'Verifying...';
-
-      fetch('/api/wall/auth/verify-otp', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
-        body: JSON.stringify({ email: currentEmail, otp: code })
-      }).then(async r => {
-        const data = await r.json().catch(() => ({}));
-        submitBtn.disabled = false;
-        submitBtn.textContent = 'Verify & Log in';
-        if (!r.ok || !data.success) {
-          errEl.textContent = data.message || 'Verification failed. Please check code.';
-          return;
-        }
-        window.auth = window.auth || {};
-        window.auth.user = data.user;
-        try { sessionStorage.setItem('ezwiki_auth', JSON.stringify({ user: data.user })); } catch(e){}
-        close();
-        if (typeof onSuccess === 'function') {
-          onSuccess(data.user);
-        }
-      }).catch(err => {
-        submitBtn.disabled = false;
-        submitBtn.textContent = 'Verify & Log in';
-        errEl.textContent = 'Network error. Please try again.';
-      });
-    };
-
-    modal.querySelector('#wallCodeInput').onkeydown = (e) => {
-      if (e.key === 'Enter') { e.preventDefault(); modal.querySelector('#wallCodeSubmit').click(); }
-    };
-
-    setTimeout(() => {
-      const inp = modal.querySelector('#wallEmailInput');
-      if (inp) inp.focus();
-    }, 50);
+    $m('.ml-x').onclick=close;$m('#mlCancel').onclick=close;
+    modal.addEventListener('click',e=>{if(e.target===modal)close();});
+    modal.addEventListener('keydown',e=>{if(e.key==='Escape')close();});
+    $m('#mlSend').onclick=send;$m('#mlResend').onclick=send;$m('#mlVerify').onclick=verify;
+    $m('#mlBack').onclick=()=>{stopPoll();email='';$m('#mlStep2').hidden=true;$m('#mlStep1').hidden=false;$m('#mlEmail').focus();};
+    $m('#mlEmail').addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();send();}});
+    $m('#mlCode').addEventListener('input',()=>{const el=$m('#mlCode');el.value=el.value.replace(/\D/g,'').slice(0,6);if(el.value.length===6)verify();});
+    setTimeout(()=>{const inp=$m('#mlEmail');if(inp)inp.focus();},50);
+    return {close,finish};
   }
 
+  /* item 20: any sign-in prompt on the wall -> popover by the cursor; resolves true once signed in */
+  function signInAt(at, title, reopen){
+    return new Promise(res => showWallOtpModal(() => res(true), { at: at, title: title || 'Sign in', reopen: reopen || null, onClose: () => res(false) }));
+  }
+  WallCore.signIn = signInAt;
+  /* After a full-page login (fallback), come back to the same + box */
+  function reopenAfterLogin(){
+    const v = ezTakeReopen(wallId); if(!v || !v.cid) return;
+    ezAuthed().then(ok => {
+      if(!ok) return;   /* only reopen after a real sign-in */
+      const m = items.find(o => String(o.cid) === v.cid && ezCanInsert(o));
+      if(!m) return;
+      const el = document.querySelector('#wall .item[data-id="'+m._id+'"]');
+      const r = el ? el.getBoundingClientRect() : null;
+      INS_AT = r ? { x: r.right - 40, y: r.bottom - 20 } : null;
+      insertChild(el, m, { draft: v.draft });
+      say('✓ Signed in');
+    });
+  }
   function checkAuthThenInsert(el, anchorItem){
     insertChild(el, anchorItem);
 
@@ -2967,24 +2977,37 @@ function bootReadonly(){
   }
   /* Guest (or owner) adds a Co-WiKi child to a mother. No optimistic card:
      the card appears when the server answers with the new snapshot. */
-  function insertChild(el,mother){
+  function insertChild(el,mother,o2){
     if(!SYNC||!ezCanInsert(mother)||!mother.cid)return;
+    o2=o2||{};
+    const signThenReopen=(pt,draft)=>{
+      signInAt(pt,'Sign in to add to this wall',{wallId:wallId,cid:mother.cid,draft:draft}).then(ok=>{
+        INS_AT=at;   /* reopen the same + box at the same place, keeping the text */
+        insertChild(el,mother,{draft:draft});
+        if(ok)say('✓ Signed in');
+      });
+    };
+    const added=j=>{
+      if(j.card&&j.card.cid)ezMineAdd(wallId,j.card.cid);
+      applySnapshot(j.cards,j.rev);
+      say(j.card&&j.card.status==='approved'?(t('insOkOwner')||'✓ Co-WiKi card added'):(t('insOk')||'✓ Co-WiKi card added. It waits for the owner to approve it.'));
+    };
+    const at=INS_AT;INS_AT=null;
     insertDialog(true,o=>{
       syncAdd(wallId,{raw:o._raw,anchor_cid:mother.cid}).then(r=>{
         if(r.ok&&r.j&&Array.isArray(r.j.cards)){
-          if(r.j.card&&r.j.card.cid)ezMineAdd(wallId,r.j.card.cid);
-          applySnapshot(r.j.cards,r.j.rev);
-          say(r.j.card&&r.j.card.status==='approved'?(t('insOkOwner')||'✓ Co-WiKi card added'):(t('insOk')||'✓ Co-WiKi card added. It waits for the owner to approve it.'));
+          added(r.j);
           return;
         }
         let msg=(r&&r.j&&(r.j.message||r.j.error))||t('insBad')||'Failed to add card';
         if(r&&r.status===413)msg=t('insBig')||'Card content too large (maximum 60KB)';
         else if(r&&r.status===429)msg='Rate limit reached, please try again later';
         if(r&&r.status===422&&r.j&&/^anchor_/.test(String(r.j.error||''))){reloadSnapshot();}
+        if(r&&r.status===401){signThenReopen(at||null,o._raw);return;}
         say(msg);
       }).catch(()=>say(t('insDown')||'Network error while adding card'));
       return true;
-    });
+    },{at:at,wallId:wallId,mother:mother,draft:o2.draft||'',onSignIn:signThenReopen,onUploaded:j=>{if(j&&Array.isArray(j.cards))added(j);else reloadSnapshot();}});
   }
   function removeCard(o){
     if(!SYNC||!o||!o.cid||!ezCanDelete(o,ezCtx()))return;
@@ -2993,16 +3016,154 @@ function bootReadonly(){
       else{say((r.j&&r.j.message)||t('delBad')||'Could not delete this card');reloadSnapshot();}
     }).catch(()=>say(t('insDown')||'Network error'));
   }
+  /* item 19: owner pin / unpin (server decides: 403 non-owner, 422 pending child or Topic/InfoMercial) */
+  function pinCard(o){
+    if(!SYNC||!o||!o.cid||!ezCanPin(o,ezCtx()))return;
+    const on=!o.pinned;
+    fetchT(syncBase(wallId)+'/cards/'+encodeURIComponent(o.cid)+'/pin',{method:'POST',headers:syncHeaders(true),credentials:'same-origin',body:JSON.stringify({wall_id:wallId,pinned:on})})
+      .then(async r=>{let j=null;try{j=await r.json();}catch(e){}
+        if(r.ok&&j&&Array.isArray(j.cards)){applySnapshot(j.cards,j.rev);say(on?'📌 Pinned':'Unpinned');}
+        else{say((j&&j.message)||'Could not change the pin');reloadSnapshot();}})
+      .catch(()=>say(t('insDown')||'Network error'));
+  }
+  WallCore.pinCard=pinCard;
   function reloadSnapshot(){
     return fetch(syncBase(wallId)+'/cards',{headers:syncHeaders(false),credentials:'same-origin'})
       .then(r=>r.ok?r.json():null).then(d=>{if(d&&Array.isArray(d.cards))applySnapshot(d.cards,d.rev);}).catch(()=>{});
   }
+  /* ---- item 16 + 22: Cards / Beads view. Everyone switches for themselves (localStorage per wall);
+     the owner sets the wall's default (meta.view, server 403 for anyone else). ---- */
+  function paintViewBtn(){
+    const b=document.getElementById('viewBtn');if(!b)return;
+    const cur=BEADS?'beads':'cards',next=BEADS?'Cards':'Beads';
+    b.setAttribute('aria-pressed',String(BEADS));b.dataset.view=cur;
+    b.querySelector('.mi').textContent=VIEW_ICON[cur];
+    b.setAttribute('aria-label','Switch to '+next);b.title='Switch to '+next+' · hold or right-click for more';
+  }
+  function setView(v){
+    const on=v==='beads';
+    if(on!==BEADS){
+      BEADS=on;document.body.classList.toggle('beads',on);
+      if(!on)BEAD_OPEN.clear();
+      beadHide();pack();
+    }
+    paintViewBtn();
+  }
+  WallCore.setView=v=>setView(v);
+  const isOwnerNow=()=>(typeof window!=='undefined'&&window.isOwner===true)||!!ownerToken();
+  function chooseView(v){ezViewSaveLocal(wallId,v);setView(v);}
+  function setDefaultView(){
+    if(!isOwnerNow())return;
+    VIEW_DEF=BEADS?'beads':'cards';
+    saveWallSetting({view:VIEW_DEF});
+    say('★ Default view for everyone: '+(VIEW_DEF==='beads'?'Beads':'Cards'));
+  }
+  WallCore.setDefaultView=setDefaultView;
+  let vmEl=null;
+  function viewMenuClose(){if(vmEl){vmEl.remove();vmEl=null;document.removeEventListener('pointerdown',vmOutside,true);}}
+  function vmOutside(e){if(vmEl&&!vmEl.contains(e.target)&&e.target.id!=='viewBtn')viewMenuClose();}
+  function viewMenuOpen(btn){
+    viewMenuClose();
+    const wrap=document.createElement('div');
+    wrap.innerHTML=ezViewMenuHTML(BEADS?'beads':'cards',VIEW_DEF,isOwnerNow(),fxFw);
+    vmEl=wrap.firstElementChild;document.body.appendChild(vmEl);
+    const r=btn.getBoundingClientRect(),w=vmEl.offsetWidth||240,h=vmEl.offsetHeight||200;
+    const p=ezAnchorBox(r.left,r.bottom+8+24,w,h,innerWidth,innerHeight);
+    vmEl.style.left=p.left+'px';vmEl.style.top=p.top+'px';
+    vmEl.addEventListener('click',e=>{
+      const it=e.target.closest('[data-vm]');if(!it||it.disabled)return;
+      const a=it.dataset.vm;
+      if(a==='cards'||a==='beads')chooseView(a);
+      else if(a==='fw')fxSetFw(!fxFw);
+      else if(a==='def')setDefaultView();
+      viewMenuClose();btn.focus();
+    });
+    vmEl.addEventListener('keydown',e=>{
+      const items=[...vmEl.querySelectorAll('.vm-i:not([disabled])')],i=items.indexOf(document.activeElement);
+      if(e.key==='Escape'){e.preventDefault();viewMenuClose();btn.focus();}
+      else if(e.key==='ArrowDown'){e.preventDefault();(items[i+1]||items[0]).focus();}
+      else if(e.key==='ArrowUp'){e.preventDefault();(items[i-1]||items[items.length-1]).focus();}
+    });
+    setTimeout(()=>document.addEventListener('pointerdown',vmOutside,true),0);
+    const first=vmEl.querySelector('.vm-i[aria-checked="true"]')||vmEl.querySelector('.vm-i');if(first)first.focus();
+  }
+  WallCore.viewMenuOpen=()=>{const b=document.getElementById('viewBtn');if(b)viewMenuOpen(b);};
+  (function bindViewBtn(){
+    const b=document.getElementById('viewBtn');if(!b)return;
+    let hold=null,held=false;
+    const clear=()=>{if(hold){clearTimeout(hold);hold=null;}};
+    b.addEventListener('pointerdown',e=>{if(e.button!==0)return;held=false;clear();hold=setTimeout(()=>{held=true;viewMenuOpen(b);},450);});
+    ['pointerup','pointerleave','pointercancel'].forEach(k=>b.addEventListener(k,clear));
+    b.addEventListener('contextmenu',e=>{e.preventDefault();clear();held=true;viewMenuOpen(b);});
+    b.addEventListener('keydown',e=>{if(e.key==='ArrowDown'||e.key==='ContextMenu'||(e.shiftKey&&e.key==='F10')){e.preventDefault();viewMenuOpen(b);}});
+    b.addEventListener('click',e=>{if(held){held=false;e.preventDefault();return;}viewMenuClose();chooseView(BEADS?'cards':'beads');});
+  })();
+  let VIEW_DEF='cards';
+  setTimeout(()=>setView(ezViewEffective(ezViewLocal(wallId),VIEW_DEF)),0);   /* saved choice before the server answers */
+  let beadPop=null,beadPT='mouse';
+  function beadHide(){if(beadPop){beadPop.remove();beadPop=null;}}
+  function beadPlace(x,y){if(!beadPop)return;const p=ezPopPos(x,y,beadPop.offsetWidth,beadPop.offsetHeight,innerWidth,innerHeight);beadPop.style.left=p.left+'px';beadPop.style.top=p.top+'px';}
+  function beadModal(cls,inner,onClick){
+    const bg=document.createElement('div');bg.className=cls;bg.innerHTML=inner;
+    const close=()=>{bg.remove();removeEventListener('keydown',esc_);};
+    const esc_=e=>{if(e.key==='Escape')close();};
+    addEventListener('keydown',esc_);
+    bg.addEventListener('click',e=>{if(e.target===bg||e.target.closest('[data-close]')){close();return;}onClick&&onClick(e,close);});
+    document.body.appendChild(bg);return {bg,close};
+  }
+  /* click on a bead: the full card (same - rules as on the wall) */
+  function beadFull(o){
+    const vw=innerWidth,vh=innerHeight,w=Math.min(vw-32,Math.max(380,Math.min(640,o.w||360)));
+    const h=Math.min(vh-64,Math.max(240,Math.round(w*((o.h&&o.w)?o.h/o.w:.75))));
+    const m=beadModal('bead-full-bg','<div class="bead-full" role="dialog" aria-modal="true" aria-label="Co-WiKi card"><button type="button" class="bf-x" data-close aria-label="Close">×</button></div>',(e,close)=>{
+      const b=e.target.closest('[data-act]');if(!b)return;
+      if(b.dataset.act==='del'||b.dataset.act==='gdel'){e.preventDefault();close();removeCard(o);}
+    });
+    const el=makeCard(Object.assign({},o,{w,h}),true);el.style.width=w+'px';el.style.height=h+'px';
+    m.bg.querySelector('.bead-full').appendChild(el);
+    const bx=m.bg.querySelector('.bf-x');if(bx)bx.focus();
+  }
+  /* touch: bottom-sheet preview, then "Open full card" (no prev/next) */
+  function beadSheet(o){
+    beadModal('bead-sheet-bg','<div class="bead-sheet" role="dialog" aria-modal="true" aria-label="Co-WiKi preview"><div class="grab"></div>'+ezBeadCardHTML(o)
+      +'<button type="button" class="bs-open">Open full card</button></div>',(e,close)=>{
+      if(e.target.closest('.bs-open')){close();beadFull(o);}
+    });
+  }
+  (function bindBeads(){
+    const w=document.getElementById('wall');if(!w)return;
+    const beadOf=e=>e.target&&e.target.closest?e.target.closest('.bead'):null;
+    w.addEventListener('pointerdown',e=>{beadPT=e.pointerType||'mouse';},true);
+    w.addEventListener('pointerover',e=>{
+      const b=beadOf(e);if(!b||e.pointerType==='touch')return;
+      const o=byId.get(b.dataset.bead);if(!o)return;
+      beadHide();beadPop=document.createElement('div');beadPop.className='bead-pop';beadPop.setAttribute('role','tooltip');
+      beadPop.innerHTML=ezBeadCardHTML(o)+'<div class="bp-hint">Click bead to open full card</div>';
+      document.body.appendChild(beadPop);beadPlace(e.clientX,e.clientY);
+    });
+    w.addEventListener('pointermove',e=>{if(beadPop&&beadOf(e))beadPlace(e.clientX,e.clientY);});
+    w.addEventListener('pointerout',e=>{const b=beadOf(e);if(b&&!(e.relatedTarget&&b.contains(e.relatedTarget)))beadHide();});
+    w.addEventListener('focusin',e=>{const b=beadOf(e);if(!b)return;const o=byId.get(b.dataset.bead);if(!o)return;
+      beadHide();beadPop=document.createElement('div');beadPop.className='bead-pop';beadPop.innerHTML=ezBeadCardHTML(o);document.body.appendChild(beadPop);
+      const r=b.getBoundingClientRect();beadPlace(r.right,r.top);});
+    w.addEventListener('focusout',beadHide);
+    addEventListener('scroll',beadHide,{passive:true});
+    w.addEventListener('click',e=>{
+      const m=e.target.closest&&e.target.closest('.bead-more');
+      if(m){e.preventDefault();const c=m.dataset.more;BEAD_OPEN.has(c)?BEAD_OPEN.delete(c):BEAD_OPEN.add(c);beadsPaint(w);return;}
+      const b=beadOf(e);if(!b)return;
+      e.preventDefault();beadHide();
+      const o=byId.get(b.dataset.bead);if(!o)return;
+      if(beadPT==='touch'||(typeof matchMedia==='function'&&matchMedia('(hover: none)').matches))beadSheet(o);else beadFull(o);
+    });
+  })();
   /* Refresh class, corner and +/- of cards that are already on screen. */
   function refreshChrome(o){
     ['','a-','c-'].forEach(p=>document.querySelectorAll('.item[data-id="'+p+o._id+'"]').forEach(el=>{
       const child=o.role==='child';
       el.classList.toggle('child',child);el.classList.toggle('mother',!child);
       el.classList.toggle('guest',child);el.classList.toggle('pending',child&&!o.ok);el.classList.toggle('ok',child&&!!o.ok);
+      el.classList.toggle('pinned',!!o.pinned);
       const k=el.querySelector('.corner');if(k)k.outerHTML=cornerHTML(o);
       const tl=el.querySelector('.card-tools');if(tl)tl.outerHTML=toolsHTML(o);
     }));
@@ -3027,7 +3188,7 @@ function bootReadonly(){
       const fresh=ezCardFromServer(c);if(!fresh)return;
       const old=prev.get(fresh.cid);
       if(old&&old._raw===fresh._raw){
-        ['role','mother_cid','zone','status','ok','guest','origin','user_id','position','at'].forEach(k=>{old[k]=fresh[k];});
+        ['role','mother_cid','zone','status','ok','guest','origin','user_id','position','at','author','pinned'].forEach(k=>{old[k]=fresh[k];});
         next.push(old);return;
       }
       if(old){byId.delete(old._id);document.querySelectorAll('.item[data-id="'+old._id+'"]').forEach(dropCard);}
@@ -3104,11 +3265,15 @@ function bootReadonly(){
       const el=b.closest('.item');if(!el)return;
       /* A／C 區的卡片 id 前面多了 a-／c- */
       const o=byId.get(String(el.dataset.id).replace(/^[ac]-/,''));if(!o)return;
-      if(b.dataset.act==='ins'){e.preventDefault();checkAuthThenInsert(el,o);}
+      if(b.dataset.act==='ins'){e.preventDefault();
+        const r=b.getBoundingClientRect();
+        INS_AT=(e.clientX||e.clientY)?{x:e.clientX,y:e.clientY}:{x:r.left+r.width/2,y:r.top+r.height/2};
+        checkAuthThenInsert(el,o);}
       else if(b.dataset.act==='gdel'||b.dataset.act==='del'){
         e.preventDefault();
         removeCard(o);
       }
+      else if(b.dataset.act==='pin'){e.preventDefault();pinCard(o);}
       else if(b.dataset.act==='edit'){
         e.preventDefault();
         if(typeof window.openPanel === 'function') window.openPanel(o.cid ? {cid:o.cid} : undefined);
@@ -3280,6 +3445,8 @@ function ezCardFromServer(c){
   o.user_id=c.user_id||null;
   o.position=+c.position||0;
   o.at=c.at||0;
+  o.author=c.author?String(c.author).slice(0,24):null;
+  o.pinned=+c.pinned||0;
   return o;
 }
 /* [[mother, child, child...], ...] in list order (server order). */
@@ -3295,9 +3462,11 @@ function ezFamilies(list){
    zone a/c cards keep their place. rnd is injectable for tests. */
 function ezShuffleFamilies(list,rnd){
   rnd=rnd||Math.random;
-  const B=list.filter(o=>(o.zone||'b')==='b'),fams=ezFamilies(B);
+  const B=list.filter(o=>(o.zone||'b')==='b'),all=ezFamilies(B);
+  /* item 19: pinned families stay at the start, in their order; only the rest is shuffled */
+  const pinned=all.filter(f=>f[0]&&f[0].role!=='child'&&f[0].pinned),fams=all.filter(f=>!pinned.includes(f));
   for(let i=fams.length-1;i>0;i--){const j=Math.floor(rnd()*(i+1));[fams[i],fams[j]]=[fams[j],fams[i]];}
-  const flatB=fams.flat();let k=0;
+  const flatB=pinned.concat(fams).flat();let k=0;
   return list.map(o=>(o.zone||'b')==='b'?flatB[k++]:o);
 }
 /* Icon rules (card rules 2.2, 3.x, 5.x). ctx = {isOwner, userId, mine:Set(cid)} */
@@ -3334,11 +3503,194 @@ function ezRowLayout(sizes,k,w,gap){
 /* ez.wiki card rules CSS, one copy for every page that loads wall-core
    (EzSheetPreview iframe, standalone export, a19/a22 pages).
    2.1 mother vs child colour, 3.1 tools lower-right, 4.1 pending dotted light green, 4.2 approved solid green. */
+/* ==================== item 16: Bead view (owner setting Cards/Beads) ====================
+   In Beads, each mother's Co-WiKi children collapse into beads on a vertical string
+   beside the mother (newest at the top). Children are hidden from the masonry, so the
+   layout, filters and shuffle only move mothers, i.e. whole families. Topic/InfoMercial
+   bands are untouched. */
+let BEADS=false;
+const BEAD_RAIL=34,BEAD_GAP=44,BEAD_STEP=26,BEAD_TOP=14;
+const BEAD_OPEN=new Set();
+let INS_AT=null;
+function ezIsChild(o){return !!o&&(o.role==='child'||(o.role==null&&!!o.guest));}
+function ezWallW(wall){return Math.max(0,wall.clientWidth-(BEADS?BEAD_RAIL:0));}
+function ezGap(){return BEADS?BEAD_GAP:GAP;}
+/* how many beads fit beside a mother of height h; the rest collapse into +N */
+function ezBeadSlots(n,h,open){
+  const cap=Math.max(1,Math.floor((h-BEAD_TOP)/BEAD_STEP));
+  if(open||n<=cap)return {show:n,more:0,cap};
+  return {show:cap-1,more:n-(cap-1),cap};
+}
+/* preview popup next to the cursor; flips left / up near the viewport edges */
+function ezPopPos(x,y,w,h,vw,vh){
+  let L=x+16,T=y+12;
+  if(L+w>vw-8)L=x-w-16;
+  if(T+h>vh-8)T=y-h-12;
+  return {left:Math.max(8,L),top:Math.max(8,T)};
+}
+/* item 17: the + box opens next to the cursor, clamped inside the viewport */
+function ezAnchorBox(x,y,w,h,vw,vh){
+  let L=x+12;if(L+w>vw-8)L=x-w-12;
+  L=Math.min(Math.max(8,L),Math.max(8,vw-w-8));
+  const T=Math.min(Math.max(8,y-24),Math.max(8,vh-h-8));
+  return {left:Math.round(L),top:Math.round(T)};
+}
+const BEAD_SAFE=/^(?:\/(?!\/)|https:\/\/|data:image\/)/i;
+function ezBeadThumb(o){
+  if(o.type==='youtube'&&o.id)return 'https://i.ytimg.com/vi/'+o.id+'/mqdefault.jpg';
+  const s=String(o._raw||'');
+  const m=s.match(/^(\/upload\S+\.(?:png|jpe?g|gif|webp|bmp|avif))$/i)||String(o.html||s).match(/<img[^>]+src="([^"]+)"/i)||s.match(/poster="([^"]+)"/i);
+  const u=m?m[1].replace(/&amp;/g,'&'):'';
+  return BEAD_SAFE.test(u)?u:'';
+}
+function ezBeadKind(o){const s=String(o._raw||'');return /<video\b/i.test(s)?'🎬':/<audio\b/i.test(s)?'🎵':/\.pdf\b/i.test(s)?'📄':o.type==='youtube'?'▶':o.type==='md'?'📝':'🔗';}
+function ezBeadKids(list){
+  const m=new Map();
+  (list||[]).forEach(o=>{if(!ezIsChild(o)||!o.mother_cid)return;const k=String(o.mother_cid);if(!m.has(k))m.set(k,[]);m.get(k).push(o);});
+  m.forEach(a=>a.sort((x,y)=>((+y.pinned||0)-(+x.pinned||0))||((+y.at||0)-(+x.at||0))));   /* newest nearest the top */
+  return m;
+}
+function ezAgo(ms){
+  if(!ms)return '';const s=Math.max(0,(Date.now()-ms)/1000);
+  return s<60?'just now':s<3600?Math.floor(s/60)+'m ago':s<86400?Math.floor(s/3600)+'h ago':Math.floor(s/86400)+'d ago';
+}
+function ezBeadCardHTML(o){
+  const th=ezBeadThumb(o),who=o.author||'Guest',k=ezBeadKind(o);let ttl=titleOf(o);
+  if(!ttl||ttl===o.type)ttl=k==='🎬'?'Video':k==='🎵'?'Audio':k==='📄'?'PDF':th?'Image':'Co-WiKi card';
+  return '<div class="bp-thumb">'+(th?'<img src="'+esc(th)+'" alt="" loading="lazy" referrerpolicy="no-referrer">':'<span class="bp-kind">'+ezBeadKind(o)+'</span>')+'</div>'
+    +'<div class="bp-body"><div class="bp-title">'+esc(String(ttl).slice(0,90))+'</div>'
+    +'<div class="bp-meta"><span class="bp-av">'+esc(who.charAt(0).toUpperCase())+'</span><span>'+esc(who)+(o.at?' · '+ezAgo(+o.at):'')+'</span>'
+    +(o.pinned?'<span class="bp-pin">📌 Pinned</span>':'')+'<span class="bp-st '+(o.ok?'ok':'pend')+'">'+(o.ok?'Approved':'Pending')+'</span></div></div>';
+}
+function beadsPaint(wall){
+  if(!wall)return;
+  let L=wall.querySelector(':scope>.bead-layer');
+  if(!BEADS||wall.classList.contains('carousel')){if(L)L.remove();return;}
+  if(!L){L=document.createElement('div');L.className='bead-layer';}
+  if(L.parentNode!==wall||L.nextSibling)wall.appendChild(L);
+  const kids=ezBeadKids(window.__wallList||[]);
+  let html='';
+  wall.querySelectorAll(':scope>.item.mother').forEach(el=>{
+    if(el.classList.contains('f-out'))return;
+    const o=el._o;if(!o||!o.cid)return;
+    const ks=kids.get(String(o.cid))||[];if(!ks.length)return;   /* no string for 0 children */
+    const left=(parseFloat(el.style.left)||0)+(parseFloat(el.style.width)||el.offsetWidth)+BEAD_GAP/2;
+    const top=parseFloat(el.style.top)||0,h=parseFloat(el.style.height)||el.offsetHeight;
+    const open=BEAD_OPEN.has(String(o.cid)),s=ezBeadSlots(ks.length,h,open),less=open&&ks.length>s.cap;
+    const len=Math.max(h,BEAD_TOP+(s.show+(s.more||less?1:0))*BEAD_STEP);
+    html+='<div class="bead-rail'+(open?' open':'')+'" style="left:'+Math.round(left)+'px;top:'+Math.round(top)+'px;height:'+Math.round(len)+'px">';
+    ks.slice(0,s.show).forEach((k,i)=>{
+      html+='<button type="button" class="bead '+(k.ok?'ok':'pend')+(k.pinned?' pinned':'')+'" data-bead="'+esc(k._id)+'" style="top:'+(BEAD_TOP+i*BEAD_STEP-10)+'px" aria-label="'+esc('Co-WiKi: '+String(titleOf(k)||'card').slice(0,60)+' ('+(k.ok?'approved':'pending')+')')+'"></button>';
+    });
+    const y=BEAD_TOP+s.show*BEAD_STEP-12;
+    if(s.more)html+='<button type="button" class="bead-more" data-more="'+esc(o.cid)+'" style="top:'+y+'px" aria-label="'+esc('Show '+s.more+' more Co-WiKi cards')+'">+'+s.more+'</button>';
+    else if(less)html+='<button type="button" class="bead-more less" data-more="'+esc(o.cid)+'" style="top:'+y+'px" aria-label="Collapse">−</button>';
+    html+='</div>';
+  });
+  L.innerHTML=html;
+}
+/* item 22: the EZBar icon that used to be Fireworks is now the Cards/Beads switch (everyone).
+   Click = switch for me (localStorage per wall). Hold / right-click / ArrowDown = menu:
+   Cards, Beads, Fireworks on/off (the icon's old job), and for the owner "Set as default for everyone". */
+const VIEW_ICON={cards:'▦',beads:'⁘'};
+function viewBtnHTML(){
+  return '<button type="button" id="viewBtn" class="pill vw" aria-pressed="false" aria-haspopup="menu" aria-label="Switch to Beads" title="Switch to Beads · hold or right-click for more"><span class="mi">▦</span></button>';
+}
+function ezViewKey(id){return 'ez_view_'+(id||'default');}
+function ezViewLocal(id){try{const v=localStorage.getItem(ezViewKey(id));return v==='beads'||v==='cards'?v:null;}catch(e){return null;}}
+function ezViewSaveLocal(id,v){try{localStorage.setItem(ezViewKey(id),v==='beads'?'beads':'cards');}catch(e){}}
+function ezViewEffective(local,def){return local||(def==='beads'?'beads':'cards');}
+function ezViewMenuHTML(cur,def,owner,fw){
+  const it=(act,on,label)=>'<button type="button" role="menuitemradio" class="vm-i" data-vm="'+act+'" aria-checked="'+(on?'true':'false')+'">'+label+'</button>';
+  return '<div class="vm" role="menu" aria-label="View">'
+    +it('cards',cur==='cards',VIEW_ICON.cards+' Cards')+it('beads',cur==='beads',VIEW_ICON.beads+' Beads')
+    +'<div class="vm-sep"></div>'
+    +'<button type="button" role="menuitemcheckbox" class="vm-i" data-vm="fw" aria-checked="'+(fw?'true':'false')+'">'+(fw?'🎆':'🌑')+' Fireworks: '+(fw?'on':'off')+'</button>'
+    +(owner?'<div class="vm-sep"></div><button type="button" role="menuitem" class="vm-i" data-vm="def"'+(cur===def?' disabled':'')+'>★ Set '+(cur==='beads'?'Beads':'Cards')+' as default for everyone</button>'
+      +'<div class="vm-note">Wall default: '+(def==='beads'?'Beads':'Cards')+'</div>':'')
+    +'</div>';
+}
+let EZ_AUTH_P=null;
+/* item 18: signed-in check for the upload row (the server still decides: 401) */
+function ezAuthed(){
+  if(typeof window!=='undefined'&&window.auth&&window.auth.user&&window.auth.user.id)return Promise.resolve(true);
+  if(!EZ_AUTH_P)EZ_AUTH_P=fetch('/api/wall/auth/me',{credentials:'same-origin',headers:{'Accept':'application/json'}})
+    .then(r=>r.ok?r.json():null).then(d=>!!(d&&d.authenticated&&d.user&&d.user.id)).catch(()=>false);
+  return EZ_AUTH_P;
+}
+const EZ_BEAD_CSS='.bead-layer{position:absolute;left:0;top:0;width:0;height:0;z-index:6;pointer-events:none;transition:opacity .2s}body.shuffling .bead-layer,body.resizing .bead-layer{opacity:0}'
+ +'.bead-rail{position:absolute;width:0;border-left:2px solid #cbd5e1;margin-left:-1px}.bead-rail.open{z-index:8}'
+ +'.bead-rail .bead,.bead-rail .bead-more{pointer-events:auto;position:absolute;left:-10px;width:20px;height:20px;border-radius:50%;padding:0;cursor:pointer;box-sizing:border-box;transition:transform .15s,box-shadow .15s}'
+ +'.bead.ok{background:#bbf7d0;border:2.5px solid #16a34a}.bead.pend{background:#fff;border:2.5px dotted #4ade80}'
+ +'.bead:hover,.bead:focus-visible{transform:scale(1.35);box-shadow:0 0 0 6px rgba(74,222,128,.28);outline:none}'
+ +'.bead-rail .bead-more{left:-13px;width:26px;height:26px;background:#0f172a;color:#fff;border:2px solid #fff;font:800 10px/1 system-ui,sans-serif;box-shadow:0 2px 6px rgba(0,0,0,.25)}'
+ +'.bead-pop{position:fixed;z-index:400;width:240px;background:#fff;border-radius:14px;box-shadow:0 18px 40px rgba(15,23,42,.28);overflow:hidden;pointer-events:none;font:13px/1.35 system-ui,sans-serif;color:#0f172a}'
+ +'.bp-thumb{height:100px;background:linear-gradient(135deg,#c4b5fd,#6366f1);display:flex;align-items:center;justify-content:center;overflow:hidden}.bp-thumb img{width:100%;height:100%;object-fit:cover;display:block}.bp-kind{font-size:34px;filter:drop-shadow(0 2px 4px rgba(0,0,0,.25))}'
+ +'.bp-body{padding:10px 12px}.bp-title{font-weight:800;margin-bottom:6px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}'
+ +'.bp-meta{display:flex;align-items:center;gap:6px;font-size:11.5px;color:#475569}.bp-av{width:18px;height:18px;flex:0 0 18px;border-radius:50%;background:#f59e0b;color:#fff;font-size:10px;display:inline-flex;align-items:center;justify-content:center;font-weight:800}'
+ +'.bp-st{margin-left:auto;font-weight:800;font-size:10.5px;border-radius:999px;padding:2px 8px;white-space:nowrap}.bp-st.pend{color:#15803d;background:#f0fdf4;border:1px dashed #4ade80}.bp-st.ok{color:#fff;background:#16a34a}'
+ +'.bp-hint{font-size:10.5px;color:#94a3b8;padding:0 12px 10px}'
+ +'.bead-sheet-bg,.bead-full-bg{position:fixed;inset:0;z-index:380;background:rgba(15,23,42,.5);display:flex}.bead-sheet-bg{align-items:flex-end}'
+ +'.bead-sheet{width:100%;background:#fff;border-radius:18px 18px 0 0;padding:8px 14px calc(16px + env(safe-area-inset-bottom));font:14px system-ui,sans-serif;animation:ezUp .22s ease-out}'
+ +'.bead-sheet .grab{width:40px;height:4px;border-radius:4px;background:#cbd5e1;margin:2px auto 10px}.bead-sheet .bp-thumb{height:160px;border-radius:12px}.bead-sheet .bp-body{padding:12px 2px 4px}.bead-sheet .bp-title{white-space:normal;font-size:16px}'
+ +'.bs-open{width:100%;margin-top:12px;padding:13px;border-radius:12px;border:0;background:#0f172a;color:#fff;font:800 14px system-ui,sans-serif;cursor:pointer}'
+ +'.bead-full-bg{align-items:center;justify-content:center;padding:16px}.bead-full{position:relative;max-width:100%}.bead-full>.item{position:relative;left:auto;top:auto}'
+ +'.bf-x{position:absolute;top:-14px;right:-14px;z-index:20;width:32px;height:32px;border-radius:50%;border:2px solid #111;background:#fff;font:800 16px/1 sans-serif;cursor:pointer}'
+ +'@keyframes ezUp{from{transform:translateY(40px);opacity:.4}to{transform:none;opacity:1}}'
+ +'.vm{position:fixed;z-index:2147483000;min-width:220px;background:#fff;border:2px solid #111;border-radius:14px;box-shadow:0 10px 30px rgba(0,0,0,.18);padding:6px;display:flex;flex-direction:column;font:600 13px/1.2 system-ui,sans-serif}'
+  +'.vm-i{display:block;width:100%;text-align:left;border:0;background:none;padding:9px 10px;border-radius:9px;cursor:pointer;color:#111;font:inherit}.vm-i:hover,.vm-i:focus{background:#f1f5f9;outline:none}.vm-i[aria-checked="true"]{background:#ecfdf5;color:#065f46}.vm-i[disabled]{opacity:.45;cursor:default}'
+  +'.vm-sep{height:1px;background:#e5e7eb;margin:4px 6px}.vm-note{font-size:11px;color:#64748b;padding:2px 10px 6px}.pill.vw[aria-pressed="true"]{background:#0E7C7B;color:#fff}'
+  +'.view-seg{display:inline-flex;border:2px solid #111;border-radius:999px;overflow:hidden;background:#fff;height:fit-content;align-self:center}.view-seg .vs{border:0;background:transparent;padding:5px 11px;font:800 12px system-ui,sans-serif;cursor:pointer;color:#111}.view-seg .vs[aria-pressed=true]{background:#34d399;color:#062e22}'
+ +'.ins-modal.anchored{display:block;background:rgba(17,17,17,.12);padding:0}.ins-modal.anchored .ins-card{position:fixed;width:min(440px,calc(100vw - 16px));max-height:calc(100vh - 16px);overflow:auto}'
+ +'.ins-modal.sheet{align-items:flex-end;padding:0}.ins-modal.sheet .ins-card{width:100%;max-width:none;border-radius:18px 18px 0 0;max-height:88vh;overflow:auto;border-bottom:0;animation:ezUp .22s ease-out}'
+ +'.ins-up{display:flex;align-items:center;flex-wrap:wrap;gap:8px;border:1.5px dashed #cbd5e1;border-radius:12px;padding:8px 10px;font-size:12px;color:#334155;background:#f8fafc}'
+ +'.ins-up-btn{display:inline-flex;align-items:center;gap:6px;border:2px solid #111;border-radius:999px;padding:4px 12px;font-weight:800;background:#fff;cursor:pointer}.ins-up-btn[aria-disabled=true]{opacity:.5;pointer-events:none}'
+ +'.ins-up-note{font-size:11px;color:#64748b}.ins-up a{color:#0284c7;font-weight:800}.ins-up-st{font-weight:800;color:#0E7C7B}';
+
+/* item 17/20: a dialog card next to the cursor, clamped to the viewport; bottom sheet on phones */
+function ezIsPhone(){return typeof matchMedia==='function'&&(matchMedia('(max-width: 640px)').matches||matchMedia('(hover: none) and (pointer: coarse)').matches);}
+function ezPlaceBox(box,at){
+  const cardEl=box.querySelector('.ins-card');if(!cardEl)return;
+  if(ezIsPhone()){box.classList.add('sheet');return;}
+  if(!at)return;
+  box.classList.add('anchored');
+  const fit=()=>{if(!cardEl.isConnected)return;const r=cardEl.getBoundingClientRect();
+    const p=ezAnchorBox(at.x,at.y,r.width,r.height,innerWidth,innerHeight);cardEl.style.left=p.left+'px';cardEl.style.top=p.top+'px';};
+  fit();if(typeof ResizeObserver!=='undefined')new ResizeObserver(fit).observe(cardEl);
+}
+/* item 20 fallback: a full-page login must come back to this wall and reopen the + box */
+const EZ_REOPEN_KEY='ez_reopen';
+function ezReopenHint(wallId,cid,draft){
+  try{localStorage.setItem(EZ_REOPEN_KEY,JSON.stringify({w:String(wallId||''),cid:cid?String(cid):null,draft:String(draft||'').slice(0,4000),t:Date.now()}));}catch(e){}
+}
+function ezTakeReopen(wallId){
+  try{const v=JSON.parse(localStorage.getItem(EZ_REOPEN_KEY)||'null');
+    if(!v||v.w!==String(wallId||'')||Date.now()-(+v.t||0)>30*60*1000)return null;
+    localStorage.removeItem(EZ_REOPEN_KEY);return v;}catch(e){return null;}
+}
+/* item 19: owner pins Content mothers and approved Co-WiKi children */
+function ezCanPin(o,ctx){
+  if(!o||!(ctx&&ctx.isOwner)||(o.zone||'b')!=='b')return false;
+  return o.role==='child'?o.status==='approved':true;
+}
+const EZ_PIN_CSS='.card-tools .pin{pointer-events:auto;width:22px;height:22px;border-radius:50%;border:0;background:#eef0f3;color:#64748b;font-size:11px;line-height:22px;padding:0;cursor:pointer;filter:grayscale(1);opacity:.75}'
+  +'.card-tools .pin:hover{opacity:1;filter:none}.card-tools .pin[aria-pressed="true"]{background:#fde68a;filter:none;opacity:1}'
+  +'.item.pinned::after{position:absolute;top:8px;right:10px;z-index:8;pointer-events:none;background:#1f2937;color:#fff;font:800 10px/1 system-ui,sans-serif;padding:4px 7px;border-radius:999px;box-shadow:0 1px 4px rgba(0,0,0,.25)}'
+  +'.item.mother.pinned::after{content:"📌 Pinned"}.item.child.pinned::after{content:"📌"}'
+  +'.item.mother.pinned{box-shadow:0 0 0 3px #f59e0b,0 6px 18px rgba(245,158,11,.25)!important}'
+  +'.bead.pinned::after{content:"📌";position:absolute;left:14px;top:-7px;font-size:11px;pointer-events:none}.bp-pin{font-size:10px;font-weight:800;color:#92400e;background:#fef3c7;border-radius:999px;padding:1px 6px}'
+  +'.ins-modal.anchored .wall-otp-card{width:min(360px,calc(100vw - 16px))!important}.ins-modal.sheet .wall-otp-card{max-width:none!important}#wallOtpModal .ins-hint{color:#475569!important}'
+  +'.ml .ml-top{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px}.ml .ml-top b{font-size:16px}.ml .ml-x{border:0;background:none;font-size:18px;cursor:pointer;color:#64748b}'
+  +'.ml .ml-p{font-size:12.5px;line-height:1.5;color:#475569;margin:0 0 10px}.ml .ml-h{font-size:16px;font-weight:800;margin:0 0 4px}.ml .ml-mail{font-size:28px}'
+  +'.ml .ml-l{display:block;font-size:11px;font-weight:700;text-transform:uppercase;color:#64748b;margin:6px 0 4px}.ml .ml-in{width:100%;box-sizing:border-box;padding:10px 12px;border:1.5px solid #cbd5e1;border-radius:8px;font-size:15px}'
+  +'.ml .ml-code{letter-spacing:8px;font-weight:800;font-size:22px;text-align:center}.ml .ml-err{color:#b91c1c;font-size:12px;min-height:16px;margin:4px 0}'
+  +'.ml .ml-go{display:flex;justify-content:flex-end;align-items:center;gap:8px;margin-top:6px}.ml .ml-link{border:0;background:none;color:#0369a1;font-size:12px;text-decoration:underline;cursor:pointer;margin-right:auto}.ml .ml-link+.ml-link{margin-right:0}'
+  +'.ml .ml-wait{font-size:11px;color:#64748b;margin:10px 0 0}.ml .ml-test{font-size:12px;background:#fef3c7;border-radius:6px;padding:6px 8px;margin:4px 0}';
 const EZ_CARD_CSS='.card-tools{position:absolute;right:48px;bottom:8px;display:flex;gap:6px;z-index:9;pointer-events:none}.card-tools .ins,.card-tools .gdel{position:static;left:auto;right:auto;bottom:auto;pointer-events:auto}.masonry.carousel .card-tools{right:8px}.item.mother{border-color:var(--ink,#111)}.item.child{background:#F2FBF4}.item.child.pending{border:2.5px dotted #8FD9A8;box-shadow:0 6px 16px rgba(22,163,74,.12)}.item.child.ok{border:2.5px solid #16A34A;box-shadow:0 10px 24px rgba(22,163,74,.22)}.corner.co.pend .c-fill{fill:#E7F8EC}.corner.co.pend .c-edge{stroke:#8FD9A8;stroke-width:2;stroke-dasharray:2 3}.corner.co.pend .c-lbl{color:#16A34A}.corner.co.ok .c-fill{fill:#16A34A}.corner.co.ok .c-lbl{color:#fff}';
 const EZ_SHY_CSS='.item.tomb{background:#070A1C;border-color:#111}.shy{position:absolute;inset:0;z-index:0;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;gap:4px;padding:16px 14px 14px;box-sizing:border-box;container-type:size;overflow:hidden;text-align:center;text-decoration:none;color:#fff;cursor:pointer;font-family:system-ui,-apple-system,"Segoe UI","Noto Sans TC","Noto Sans",sans-serif;background:radial-gradient(ellipse 62% 34% at 50% 74%,rgba(6,9,20,.62),rgba(6,9,20,0) 72%),url("data:image/svg+xml,<svg xmlns=\'http://www.w3.org/2000/svg\' width=\'180\' height=\'180\'><circle cx=\'112\' cy=\'134\' r=\'0.53\' fill=\'%23FFE9A3\' opacity=\'0.37\'/><circle cx=\'84\' cy=\'170\' r=\'0.52\' fill=\'%23fff\' opacity=\'0.55\'/><circle cx=\'156\' cy=\'69\' r=\'0.32\' fill=\'%23fff\' opacity=\'0.57\'/><circle cx=\'33\' cy=\'156\' r=\'0.48\' fill=\'%23fff\' opacity=\'0.43\'/><circle cx=\'111\' cy=\'23\' r=\'0.51\' fill=\'%23fff\' opacity=\'0.78\'/><circle cx=\'173\' cy=\'30\' r=\'0.34\' fill=\'%23fff\' opacity=\'0.65\'/><circle cx=\'122\' cy=\'37\' r=\'0.84\' fill=\'%23CFE8FF\' opacity=\'0.51\'/><circle cx=\'65\' cy=\'30\' r=\'0.27\' fill=\'%23FFF4D6\' opacity=\'0.8\'/><circle cx=\'106\' cy=\'107\' r=\'0.27\' fill=\'%23FFF4D6\' opacity=\'0.8\'/><circle cx=\'87\' cy=\'57\' r=\'0.46\' fill=\'%23fff\' opacity=\'0.49\'/><circle cx=\'169\' cy=\'171\' r=\'0.37\' fill=\'%23FFE9A3\' opacity=\'0.78\'/><circle cx=\'66\' cy=\'104\' r=\'0.26\' fill=\'%23fff\' opacity=\'0.69\'/><circle cx=\'172\' cy=\'21\' r=\'0.50\' fill=\'%23CFE8FF\' opacity=\'0.54\'/><circle cx=\'64\' cy=\'94\' r=\'0.28\' fill=\'%23FFF4D6\' opacity=\'0.82\'/><circle cx=\'7\' cy=\'170\' r=\'0.35\' fill=\'%23FFE9A3\' opacity=\'0.55\'/><circle cx=\'27\' cy=\'50\' r=\'0.28\' fill=\'%23FFF4D6\' opacity=\'0.52\'/><circle cx=\'144\' cy=\'113\' r=\'0.34\' fill=\'%23CFE8FF\' opacity=\'0.44\'/><circle cx=\'9\' cy=\'178\' r=\'0.37\' fill=\'%23fff\' opacity=\'0.76\'/><circle cx=\'62\' cy=\'45\' r=\'0.29\' fill=\'%23fff\' opacity=\'0.79\'/><circle cx=\'60\' cy=\'37\' r=\'0.80\' fill=\'%23fff\' opacity=\'0.7\'/><circle cx=\'142\' cy=\'19\' r=\'0.29\' fill=\'%23CFE8FF\' opacity=\'0.51\'/><circle cx=\'82\' cy=\'180\' r=\'0.94\' fill=\'%23CFE8FF\' opacity=\'0.88\'/><circle cx=\'124\' cy=\'57\' r=\'0.39\' fill=\'%23fff\' opacity=\'0.41\'/><circle cx=\'148\' cy=\'96\' r=\'0.53\' fill=\'%23FFF4D6\' opacity=\'0.45\'/><circle cx=\'89\' cy=\'93\' r=\'0.40\' fill=\'%23fff\' opacity=\'0.78\'/><circle cx=\'139\' cy=\'125\' r=\'0.48\' fill=\'%23FFF4D6\' opacity=\'0.66\'/><circle cx=\'120\' cy=\'150\' r=\'0.54\' fill=\'%23FFF4D6\' opacity=\'0.88\'/><circle cx=\'61\' cy=\'32\' r=\'0.77\' fill=\'%23FFF4D6\' opacity=\'0.53\'/><circle cx=\'49\' cy=\'52\' r=\'0.45\' fill=\'%23FFF4D6\' opacity=\'0.54\'/><circle cx=\'116\' cy=\'133\' r=\'0.72\' fill=\'%23fff\' opacity=\'0.83\'/><circle cx=\'124\' cy=\'176\' r=\'0.78\' fill=\'%23FFE9A3\' opacity=\'0.89\'/><circle cx=\'36\' cy=\'65\' r=\'0.70\' fill=\'%23fff\' opacity=\'0.75\'/><circle cx=\'131\' cy=\'31\' r=\'0.42\' fill=\'%23CFE8FF\' opacity=\'0.52\'/><circle cx=\'100\' cy=\'156\' r=\'0.55\' fill=\'%23fff\' opacity=\'0.44\'/><circle cx=\'79\' cy=\'117\' r=\'0.46\' fill=\'%23fff\' opacity=\'0.89\'/><circle cx=\'176\' cy=\'30\' r=\'0.64\' fill=\'%23fff\' opacity=\'0.62\'/><circle cx=\'99\' cy=\'75\' r=\'0.45\' fill=\'%23fff\' opacity=\'0.67\'/><circle cx=\'43\' cy=\'163\' r=\'0.37\' fill=\'%23FFF4D6\' opacity=\'0.82\'/><circle cx=\'156\' cy=\'124\' r=\'0.54\' fill=\'%23FFE9A3\' opacity=\'0.69\'/><circle cx=\'17\' cy=\'98\' r=\'0.42\' fill=\'%23FFF4D6\' opacity=\'0.8\'/><circle cx=\'75\' cy=\'146\' r=\'0.36\' fill=\'%23fff\' opacity=\'0.44\'/><circle cx=\'69\' cy=\'86\' r=\'0.29\' fill=\'%23fff\' opacity=\'0.54\'/><circle cx=\'161\' cy=\'0\' r=\'0.42\' fill=\'%23FFE9A3\' opacity=\'0.65\'/><circle cx=\'59\' cy=\'158\' r=\'0.38\' fill=\'%23fff\' opacity=\'0.62\'/><circle cx=\'86\' cy=\'127\' r=\'0.51\' fill=\'%23fff\' opacity=\'0.68\'/><circle cx=\'47\' cy=\'177\' r=\'0.37\' fill=\'%23FFF4D6\' opacity=\'0.87\'/><circle cx=\'55\' cy=\'167\' r=\'0.26\' fill=\'%23FFE9A3\' opacity=\'0.88\'/><circle cx=\'44\' cy=\'7\' r=\'0.37\' fill=\'%23CFE8FF\' opacity=\'0.64\'/><circle cx=\'49\' cy=\'168\' r=\'0.32\' fill=\'%23FFF4D6\' opacity=\'0.81\'/><circle cx=\'130\' cy=\'51\' r=\'0.55\' fill=\'%23FFE9A3\' opacity=\'0.7\'/><circle cx=\'109\' cy=\'134\' r=\'0.48\' fill=\'%23FFF4D6\' opacity=\'0.51\'/><circle cx=\'127\' cy=\'110\' r=\'0.26\' fill=\'%23FFF4D6\' opacity=\'0.55\'/><circle cx=\'134\' cy=\'106\' r=\'0.33\' fill=\'%23CFE8FF\' opacity=\'0.73\'/><circle cx=\'19\' cy=\'124\' r=\'0.38\' fill=\'%23CFE8FF\' opacity=\'0.68\'/><circle cx=\'124\' cy=\'172\' r=\'0.51\' fill=\'%23CFE8FF\' opacity=\'0.61\'/><circle cx=\'123\' cy=\'130\' r=\'0.76\' fill=\'%23fff\' opacity=\'0.52\'/><circle cx=\'1\' cy=\'140\' r=\'0.44\' fill=\'%23CFE8FF\' opacity=\'0.85\'/><circle cx=\'26\' cy=\'86\' r=\'0.40\' fill=\'%23FFF4D6\' opacity=\'0.65\'/><circle cx=\'77\' cy=\'97\' r=\'0.47\' fill=\'%23FFF4D6\' opacity=\'0.8\'/><circle cx=\'143\' cy=\'119\' r=\'0.47\' fill=\'%23fff\' opacity=\'0.9\'/><circle cx=\'126\' cy=\'9\' r=\'0.68\' fill=\'%23fff\' opacity=\'0.74\'/><circle cx=\'24\' cy=\'53\' r=\'0.65\' fill=\'%23FFE9A3\' opacity=\'0.45\'/><circle cx=\'144\' cy=\'12\' r=\'0.42\' fill=\'%23CFE8FF\' opacity=\'0.76\'/><circle cx=\'50\' cy=\'103\' r=\'0.37\' fill=\'%23FFE9A3\' opacity=\'0.42\'/><circle cx=\'78\' cy=\'57\' r=\'0.40\' fill=\'%23FFF4D6\' opacity=\'0.85\'/><circle cx=\'25\' cy=\'53\' r=\'0.45\' fill=\'%23FFF4D6\' opacity=\'0.85\'/><circle cx=\'100\' cy=\'112\' r=\'0.42\' fill=\'%23FFF4D6\' opacity=\'0.81\'/><circle cx=\'51\' cy=\'176\' r=\'0.90\' fill=\'%23CFE8FF\' opacity=\'0.76\'/><circle cx=\'32\' cy=\'128\' r=\'0.28\' fill=\'%23fff\' opacity=\'0.4\'/><circle cx=\'22\' cy=\'107\' r=\'0.51\' fill=\'%23CFE8FF\' opacity=\'0.88\'/></svg>"),radial-gradient(ellipse 58% 26% at 50% 25%,rgba(63,209,181,.38),rgba(63,209,181,0) 70%),radial-gradient(ellipse 26% 20% at 24% 16%,rgba(139,92,246,.4),rgba(139,92,246,0) 72%),radial-gradient(ellipse 22% 16% at 80% 38%,rgba(255,215,90,.2),rgba(255,215,90,0) 72%),radial-gradient(ellipse at 50% 36%,#123F44 0,#0D2233 45%,#070A1C 100%);background-color:#070A1C}.shy::before{content:"";position:absolute;inset:-12%;background:url("data:image/svg+xml,<svg xmlns=\'http://www.w3.org/2000/svg\' width=\'240\' height=\'240\'><circle cx=\'26\' cy=\'127\' r=\'1.23\' fill=\'%23CFE8FF\' opacity=\'1\'/><path d=\'M22 127h7M26 124v7\' stroke=\'%23CFE8FF\' stroke-width=\'.4\'/><circle cx=\'13\' cy=\'36\' r=\'1.47\' fill=\'%23fff\' opacity=\'1\'/><path d=\'M9 36h7M13 33v7\' stroke=\'%23fff\' stroke-width=\'.4\'/><circle cx=\'180\' cy=\'20\' r=\'1.45\' fill=\'%23CFE8FF\' opacity=\'1\'/><path d=\'M176 20h7M180 17v7\' stroke=\'%23CFE8FF\' stroke-width=\'.4\'/><circle cx=\'197\' cy=\'34\' r=\'1.27\' fill=\'%23FFF4D6\' opacity=\'1\'/><path d=\'M193 34h7M197 30v7\' stroke=\'%23FFF4D6\' stroke-width=\'.4\'/><circle cx=\'201\' cy=\'70\' r=\'1.46\' fill=\'%23FFF4D6\' opacity=\'1\'/><path d=\'M197 70h7M201 66v7\' stroke=\'%23FFF4D6\' stroke-width=\'.4\'/><circle cx=\'191\' cy=\'91\' r=\'1.33\' fill=\'%23FFF4D6\' opacity=\'1\'/><path d=\'M188 91h7M191 87v7\' stroke=\'%23FFF4D6\' stroke-width=\'.4\'/><circle cx=\'155\' cy=\'193\' r=\'1.16\' fill=\'%23FFF4D6\' opacity=\'1\'/><circle cx=\'124\' cy=\'142\' r=\'1.24\' fill=\'%23fff\' opacity=\'1\'/><path d=\'M121 142h7M124 139v7\' stroke=\'%23fff\' stroke-width=\'.4\'/><circle cx=\'95\' cy=\'23\' r=\'0.92\' fill=\'%23fff\' opacity=\'1\'/><circle cx=\'47\' cy=\'118\' r=\'1.46\' fill=\'%23FFF4D6\' opacity=\'1\'/><path d=\'M43 118h7M47 114v7\' stroke=\'%23FFF4D6\' stroke-width=\'.4\'/><circle cx=\'0\' cy=\'113\' r=\'1.43\' fill=\'%23FFE9A3\' opacity=\'1\'/><path d=\'M-3 113h7M0 109v7\' stroke=\'%23FFE9A3\' stroke-width=\'.4\'/><circle cx=\'221\' cy=\'78\' r=\'1.18\' fill=\'%23fff\' opacity=\'1\'/><circle cx=\'37\' cy=\'38\' r=\'1.12\' fill=\'%23CFE8FF\' opacity=\'1\'/><circle cx=\'209\' cy=\'113\' r=\'1.23\' fill=\'%23fff\' opacity=\'1\'/><path d=\'M205 113h7M209 109v7\' stroke=\'%23fff\' stroke-width=\'.4\'/></svg>");pointer-events:none;animation:shyTw 4.5s ease-in-out infinite alternate,shyDrift 40s ease-in-out infinite alternate;will-change:opacity,transform}.shy>*{position:relative;max-width:100%}.shy:focus-visible{outline:3px solid #FFD75A;outline-offset:-5px}.shy-sky{flex:1 1 auto;min-height:0;width:100%;display:flex;flex-direction:column;align-items:center;justify-content:center}.shy-ring{position:relative;width:min(84cqw,calc(33cqh * 300 / 92));aspect-ratio:300/92;background:url("data:image/svg+xml,<svg xmlns=\'http://www.w3.org/2000/svg\' viewBox=\'0 0 300 92\'><defs><linearGradient id=\'f\' x1=\'0\' x2=\'1\'><stop offset=\'0\' stop-color=\'%23B8892A\'/><stop offset=\'.3\' stop-color=\'%23FFE9A3\'/><stop offset=\'.55\' stop-color=\'%23C9982E\'/><stop offset=\'.8\' stop-color=\'%23FFF4C8\'/><stop offset=\'1\' stop-color=\'%239C7524\'/></linearGradient></defs><g fill=\'none\' stroke=\'url(%23f)\'><ellipse cx=\'150\' cy=\'46\' rx=\'120\' ry=\'36.0\' stroke-width=\'1.8\'/><ellipse cx=\'150\' cy=\'46\' rx=\'108\' ry=\'32.4\' stroke-width=\'.7\' stroke-dasharray=\'2 4\'/><path stroke-width=\'.9\' d=\'M270.0 46.0L278.0 46.0M269.5 49.1L273.5 49.2M268.2 52.3L272.1 52.5M265.9 55.3L269.8 55.6M262.8 58.3L266.5 58.7M258.8 61.2L262.4 61.7M253.9 64.0L260.9 65.2M248.3 66.6L251.6 67.3M241.9 69.1L245.0 69.9M234.9 71.5L237.7 72.3M227.1 73.6L229.7 74.5M218.8 75.5L221.1 76.5M210.0 77.2L214.0 79.3M200.7 78.6L202.4 79.7M191.0 79.8L192.4 81.0M181.1 80.8L182.1 81.9M170.8 81.5L171.5 82.6M160.5 81.9L160.8 83.1M150.0 82.0L150.0 84.4M139.5 81.9L139.2 83.1M129.2 81.5L128.5 82.6M118.9 80.8L117.9 81.9M109.0 79.8L107.6 81.0M99.3 78.6L97.6 79.7M90.0 77.2L86.0 79.3M81.2 75.5L78.9 76.5M72.9 73.6L70.3 74.5M65.1 71.5L62.3 72.3M58.1 69.1L55.0 69.9M51.7 66.6L48.4 67.3M46.1 64.0L39.1 65.2M41.2 61.2L37.6 61.7M37.2 58.3L33.5 58.7M34.1 55.3L30.2 55.6M31.8 52.3L27.9 52.5M30.5 49.1L26.5 49.2M30.0 46.0L22.0 46.0M30.5 42.9L26.5 42.8M31.8 39.7L27.9 39.5M34.1 36.7L30.2 36.4M37.2 33.7L33.5 33.3M41.2 30.8L37.6 30.3M46.1 28.0L39.1 26.8M51.7 25.4L48.4 24.7M58.1 22.9L55.0 22.1M65.1 20.5L62.3 19.7M72.9 18.4L70.3 17.5M81.2 16.5L78.9 15.5M90.0 14.8L86.0 12.7M99.3 13.4L97.6 12.3M109.0 12.2L107.6 11.0M118.9 11.2L117.9 10.1M129.2 10.5L128.5 9.4M139.5 10.1L139.2 8.9M150.0 10.0L150.0 7.6M160.5 10.1L160.8 8.9M170.8 10.5L171.5 9.4M181.1 11.2L182.1 10.1M191.0 12.2L192.4 11.0M200.7 13.4L202.4 12.3M210.0 14.8L214.0 12.7M218.8 16.5L221.1 15.5M227.1 18.4L229.7 17.5M234.9 20.5L237.7 19.7M241.9 22.9L245.0 22.1M248.3 25.4L251.6 24.7M253.9 28.0L260.9 26.8M258.8 30.8L262.4 30.3M262.8 33.7L266.5 33.3M265.9 36.7L269.8 36.4M268.2 39.7L272.1 39.5M269.5 42.9L273.5 42.8\'/></g><circle cx=\'260.5\' cy=\'60.0\' r=\'2.4\' fill=\'%23FFF4C8\'/><circle cx=\'195.1\' cy=\'79.4\' r=\'2.4\' fill=\'%23FFF4C8\'/><circle cx=\'103.3\' cy=\'79.2\' r=\'2.4\' fill=\'%23FFF4C8\'/><circle cx=\'38.8\' cy=\'59.5\' r=\'2.4\' fill=\'%23FFF4C8\'/><circle cx=\'39.5\' cy=\'32.0\' r=\'2.4\' fill=\'%23FFF4C8\'/><circle cx=\'104.9\' cy=\'12.6\' r=\'2.4\' fill=\'%23FFF4C8\'/><circle cx=\'196.7\' cy=\'12.8\' r=\'2.4\' fill=\'%23FFF4C8\'/><circle cx=\'261.2\' cy=\'32.5\' r=\'2.4\' fill=\'%23FFF4C8\'/></svg>") center/contain no-repeat;filter:drop-shadow(0 0 3px rgba(255,215,90,.45))}.shy-star{position:absolute;left:50%;top:calc(50% - 3.5cqh);width:min(16cqh,14cqw);aspect-ratio:1;translate:-50% -50%;border-radius:50%;background:radial-gradient(circle,#fff 0 6%,#FFF8DC 9%,rgba(255,215,90,.55) 22%,rgba(255,215,90,0) 62%);animation:shyStar 5s ease-in-out infinite}.shy-star::before,.shy-star::after{content:"";position:absolute;left:50%;top:50%;width:70%;height:5%;translate:-50% -50%;border-radius:50%;background:linear-gradient(90deg,rgba(255,248,220,0),#FFF8DC,rgba(255,248,220,0))}.shy-star::after{rotate:90deg}.shy-cap{font:700 clamp(7px,3.2cqh,12px) Georgia,serif;letter-spacing:.35em;color:#FFE9A3;opacity:.72;margin-top:.6cqh;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%}.shy-hd{font-size:clamp(16px,min(14cqh,11cqw),48px);font-weight:900;line-height:1.02;letter-spacing:.02em;color:#FFD75A;text-shadow:0 0 .55em rgba(255,215,90,.6),0 .07em 0 rgba(0,0,0,.5);white-space:nowrap}.shy-hd i{font-style:normal;font-size:.52em;vertical-align:.5em;margin:0 .35em}.shy-pill{display:inline-flex;align-items:center;gap:.4em;background:rgba(10,14,30,.55);border:1px solid rgba(255,255,255,.3);border-radius:999px;padding:.18em .75em .18em .22em;font-size:clamp(9px,min(4.6cqh,3.6cqw),15px);font-weight:800;letter-spacing:.02em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.shy-fav{position:relative;flex:0 0 auto;width:1.4em;height:1.4em;border-radius:.35em;overflow:hidden;background:#FFD75A;color:#22182B;font-size:1em;line-height:1.4em;font-weight:900}.shy-fav::before{content:attr(data-m);position:absolute;inset:0;text-align:center}.shy-fav img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;background:#fff}.shy-sub{font-size:clamp(9px,min(4.6cqh,3.4cqw),15px);opacity:.92;text-shadow:0 1px 3px #000;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.shy-btn{margin-top:.6cqh;display:inline-flex;align-items:center;background:#FFD75A;color:#22182B;border:2px solid #fff;outline:2px solid #FFD75A;border-radius:999px;padding:.4em 1.3em;font-size:clamp(10px,min(5.4cqh,4cqw),18px);font-weight:900;white-space:nowrap;box-shadow:0 3px 10px rgba(0,0,0,.3);transition:transform .15s;animation:shyPl 2.4s infinite}.shy:hover .shy-btn{transform:scale(1.06)}.shy:active .shy-btn{transform:scale(.96)}@container (max-height:180px){.shy-cap,.shy-sub{display:none}}@container (max-height:120px){.shy-sky,.shy-pill{display:none}}@container (max-width:170px){.shy-cap,.shy-sub,.shy-hd i{display:none}}@keyframes shyTw{from{opacity:.35}to{opacity:1}}@keyframes shyDrift{to{transform:translate(-4%,1.5%)}}@keyframes shyStar{0%,100%{opacity:.45;scale:.7}55%{opacity:1;scale:1.2}}@keyframes shyPl{0%,100%{box-shadow:0 0 0 0 rgba(255,215,90,.55)}60%{box-shadow:0 0 0 8px rgba(255,215,90,0)}}.shy.off::before,.shy.off .shy-star,.shy.off .shy-btn{animation-play-state:paused}@media (prefers-reduced-motion:reduce){.shy::before,.shy-star,.shy-btn{animation:none}.shy::before{opacity:.85}.shy-btn{transition:none}}';
 function ezInjectCardCss(doc){
   try{doc=doc||document;if(!doc||!doc.head)return;const old=doc.getElementById('ez-card-rules');if(old){doc.head.appendChild(old);return;}/* keep it last so it wins */
-    const st=doc.createElement('style');st.id='ez-card-rules';st.textContent=EZ_CARD_CSS+EZ_SHY_CSS;doc.head.appendChild(st);}catch(e){}
+    const st=doc.createElement('style');st.id='ez-card-rules';st.textContent=EZ_CARD_CSS+EZ_SHY_CSS+EZ_BEAD_CSS+EZ_PIN_CSS;doc.head.appendChild(st);}catch(e){}
 }
 ezInjectCardCss();
 window.WallCore={EZ_CARD_CSS,EZ_SHY_CSS,tombHTML,shyObserve,hostOf,ezInjectCardCss,fitColumns,STD_W,STD_H,GRID,MIN,YT,esc,httpUrl,normalize,makeCard,renderAll,applySize,watchWidth,validCols,bootReadonly,layoutWall,fitH,onMeasure,fitOf,isTomb,setFrameCheck,checkFrames,dropCard,carouselBtnHTML,setCarousel,carSync,
@@ -3346,5 +3698,5 @@ window.WallCore={EZ_CARD_CSS,EZ_SHY_CSS,tombHTML,shyObserve,hostOf,ezInjectCardC
   saveWallSetting,
   I18N,t,colsText,setLangCode,getLang,applyI18n,langSelectHTML,menuHTML,updateLayoutUI,bindMenu,randomSize,
   shuffled,shuffleBtnHTML,reorderAnimated,
-  ezStripTags,ezParseSheet,ezSnapSig,ezHeightDamper,ezSheetIndex,ezSheetFilter,ezSheetMemory,ezRetag,ezRemoveCids,ezRevGate,ezCardFromServer,ezFamilies,ezShuffleFamilies,ezCanInsert,ezCanDelete,ezRowLayout,ezMineAdd,toolsHTML};
+  ezStripTags,ezParseSheet,ezSnapSig,ezHeightDamper,ezSheetIndex,ezSheetFilter,ezSheetMemory,ezRetag,ezRemoveCids,ezRevGate,ezCardFromServer,ezFamilies,ezShuffleFamilies,ezCanInsert,ezCanDelete,ezRowLayout,ezMineAdd,toolsHTML,ezBeadSlots,ezPopPos,ezAnchorBox,ezBeadKids,ezBeadThumb,ezBeadCardHTML,beadsPaint,ezIsChild,ezCanPin,ezPlaceBox,ezViewKey,ezViewLocal,ezViewSaveLocal,ezViewEffective,ezViewMenuHTML,viewBtnHTML,ezReopenHint,ezTakeReopen,setBeadsFlag:on=>{BEADS=!!on;},isBeads:()=>BEADS};
 })();
