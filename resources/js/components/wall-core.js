@@ -2600,6 +2600,19 @@ function bootReadonly(){
   const byId=new Map(items.map(o=>[o._id,o]));
   const id=String(d.id||'');
   const wallId=id||'default';
+  let token=String(d.slug||d.token||(typeof window!=='undefined'&&(window.WALL_SLUG||window.FUNNEL_TOKEN))||'');
+  if(!token || token === 'ezsheet'){
+    try {
+      const pPath=(typeof window!=='undefined'&&window.parent&&window.parent.location)?window.parent.location.pathname:(typeof location!=='undefined'?location.pathname:'');
+      const parts = (pPath || '').split('/').filter(Boolean);
+      const cand = (parts[0] === 'X' && parts[1]) ? parts[1] : parts[0];
+      const blocked = ['dashboard', 'marketplace', 'login', 'register', 'ezbar', 'ezsheet'];
+      if(cand && blocked.indexOf(cand.toLowerCase()) === -1) {
+        token = cand;
+      }
+    } catch(e){}
+  }
+  const displayToken=(token&&token!=='ezsheet')?token:(id||'Wall');
   /* 作者匯出時的欄位設定是預設值；沒有欄位就用原始版面 */
   const authorMode=validCols(d.cols)&&d.cols>0?d.cols:-1;
   const VKEY='wall_view_'+(id||'default');
@@ -2614,7 +2627,7 @@ function bootReadonly(){
 
   const isOwner = (typeof window !== 'undefined' && window.isOwner === true) || !!(typeof ownerToken === 'function' && ownerToken());
   const globeHTML = isOwner ? '<button class="globe" onclick="openPanel()" data-i18n-aria="openEditor" title="'+esc(t('openEditor'))+'">🌍</button>' : '';
-  const fabHTML = '<button id="fab" class="fab" onclick="openPanel()"><span id="idDisplay">'+esc(id||'Wall')+'</span></button>';
+  const fabHTML = '<button id="fab" class="fab" onclick="openPanel()"><span id="idDisplay">'+esc(displayToken)+'</span></button>';
   document.body.insertAdjacentHTML('afterbegin','<div class="bar-zone" id="barZone" aria-label="EzBar"><div class="fab-wrap">'+globeHTML+fabHTML+menuHTML(true)+shuffleBtnHTML()+carouselBtnHTML()+(useFilter?filterBtnHTML():'')+zoneBtnHTML()+viewBtnHTML()+fxBtnHTML()+syncBtnHTML()+langSelectHTML()+'</div>'+(useFilter?filterBarHTML():'')+'</div>');
   if(!isOwner){document.querySelectorAll('.globe').forEach(el=>{el.style.display='none';});}
   window.__wallList = items;
@@ -2662,8 +2675,8 @@ function bootReadonly(){
     o.mh=h;if(mode!==-1||!orig.get(cid)||o.h>fitH(o,o.w,mode>0?mode:2))o.h=fitH(o,o.w,mode>0?mode:2);later();
   });
   function applyLangUI(){applyI18n();updateLayoutUI(mode);applyZoneOrder(zorder);carSync(wall,true);if(empty)empty.textContent=t('wallEmpty');
-    const d1=document.getElementById('idDisplay');if(d1)d1.textContent=id||'Wall';
-    const d2=document.getElementById('idDisplay2');if(d2)d2.textContent=id||'Wall';
+    const d1=document.getElementById('idDisplay');if(d1)d1.textContent=displayToken;
+    const d2=document.getElementById('idDisplay2');if(d2)d2.textContent=displayToken;
     const dot=document.getElementById('syncDot');
     if(dot&&!dot.hidden)dot.title=t(dot.classList.contains('on')?'syncOn':'syncOff');}
 

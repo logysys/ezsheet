@@ -665,6 +665,18 @@ const EzSheetPreview: React.FC<EzSheetPreviewProps> = ({
 
     let list: any[] = [];
     let detectedId = wallId;
+    const resolvedSlug = (() => {
+      if (slug && slug !== 'ezsheet') return slug;
+      if (typeof window !== 'undefined') {
+        const parts = (window.location.pathname || '').split('/').filter(Boolean);
+        const cand = (parts[0] === 'X' && parts[1]) ? parts[1] : parts[0];
+        const blocked = ['dashboard', 'marketplace', 'login', 'register', 'ezbar', 'ezsheet'];
+        if (cand && !blocked.includes(cand.toLowerCase())) {
+          return cand;
+        }
+      }
+      return slug || '';
+    })();
     let detectedCols = typeof cols === 'number' ? cols : undefined;
     let detectedCar = typeof car === 'boolean' ? car : undefined;
     let detectedFilter: boolean | undefined = typeof filter === 'boolean' ? filter : undefined;
@@ -820,6 +832,7 @@ const EzSheetPreview: React.FC<EzSheetPreviewProps> = ({
 
     return {
       id: detectedId,
+      slug: (resolvedSlug && resolvedSlug !== 'ezsheet') ? resolvedSlug : undefined,
       cols: detectedCols !== undefined ? detectedCols : 0,
       car: detectedCar === true,
       lang: detectedLang,
@@ -834,7 +847,7 @@ const EzSheetPreview: React.FC<EzSheetPreviewProps> = ({
       editable,
       sprites,
     };
-  }, [cards, fetchedCards, fetchedRev, rev, isOwner, resolvedAuth, content, wallId, lang, cols, car, filter, zones, zorder, fireworks, flying, sound, sprites, editable]);
+  }, [cards, fetchedCards, fetchedRev, rev, isOwner, resolvedAuth, content, wallId, slug, lang, cols, car, filter, zones, zorder, fireworks, flying, sound, sprites, editable]);
 
   useEffect(() => {
     if (!payload || !iframeRef.current) return;
@@ -897,7 +910,7 @@ if(typeof window !== 'undefined' && typeof Zdog === 'undefined' && window.Zdog){
 </head>
 <body class="${editable ? 'edit' : 'ro'}${isOwner ? ' is-owner' : ' not-owner'}">
 <div id="panel" class="import-panel hidden">
-<div style="display:flex;justify-content:space-between"><b>V620.01 <span data-i18n="title">Wall editor</span> - <span id="idDisplay2">${payload.id || '一起維基'}</span></b><button onclick="closePanel()" class="tool-btn" data-i18n-aria="close">✕</button></div>
+<div style="display:flex;justify-content:space-between"><b>V620.01 <span data-i18n="title">Wall editor</span> - <span id="idDisplay2">${payload.slug || payload.id || '一起維基'}</span></b><button onclick="closePanel()" class="tool-btn" data-i18n-aria="close">✕</button></div>
 
 <div class="toolbar">
 <label class="tool-btn" style="background:#e3f2fd" onclick="var f=document.getElementById('fileUpload'); if(f && event.target!==f) f.click();"><input type="file" id="fileUpload" accept="image/*,video/*,audio/*,.pdf,.html,.htm,.json,.txt,application/pdf,text/html" multiple hidden>📥 <span data-i18n="upload">Upload</span></label>
@@ -983,7 +996,7 @@ window.isOwner = ${JSON.stringify(!!isOwner)};
 window.WALL_ORIGIN = ${JSON.stringify(parentOrigin)};
 window.WALL_DOMAINS = ${JSON.stringify(resolvedDomains)};
 window.WALL_ID = ${JSON.stringify(wallId)};
-window.WALL_SLUG = ${JSON.stringify(slug || wallId || '')};
+window.WALL_SLUG = ${JSON.stringify(payload.slug || slug || wallId || '')};
 window.MESSAGE_ID = ${JSON.stringify(messageId || null)};
 try{WallCore.setWallSync(${JSON.stringify(effectiveSyncUrl)});}catch(e){}
 ${frameCheckUrl ? `try{WallCore.setFrameCheck(${JSON.stringify(frameCheckUrl)});}catch(e){}` : ''}
@@ -2240,8 +2253,21 @@ if($('copyBtn')) $('copyBtn').addEventListener('click', copyFullHTML);
 if($('dlBtn')) $('dlBtn').addEventListener('click', downloadStandalone);
 if($('btnDownloadJSON')) $('btnDownloadJSON').addEventListener('click', downloadSheet);
 if($('btnClearWall')) $('btnClearWall').addEventListener('click', clearWall);
-if($('idDisplay')) $('idDisplay').textContent = window.WALL_ID || 'Wall';
-if($('idDisplay2')) $('idDisplay2').textContent = window.WALL_ID || 'Wall';
+var displayToken = (window.WALL_SLUG && window.WALL_SLUG !== 'ezsheet') ? window.WALL_SLUG : '';
+if(!displayToken){
+  try {
+    var pPath = (window.parent && window.parent.location) ? window.parent.location.pathname : (window.location ? window.location.pathname : '');
+    var parts = (pPath || '').split('/').filter(Boolean);
+    var cand = (parts[0] === 'X' && parts[1]) ? parts[1] : parts[0];
+    var blocked = ['dashboard', 'marketplace', 'login', 'register', 'ezbar', 'ezsheet'];
+    if(cand && blocked.indexOf(cand.toLowerCase()) === -1) {
+      displayToken = cand;
+    }
+  } catch(e){}
+}
+if(!displayToken) displayToken = window.WALL_ID || 'Wall';
+if($('idDisplay')) $('idDisplay').textContent = displayToken;
+if($('idDisplay2')) $('idDisplay2').textContent = displayToken;
 paintChips();
 
 EZED = EzSheetEditor.mount(document.getElementById('panel'), {
