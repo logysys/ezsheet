@@ -1309,7 +1309,7 @@ const MessageItem: React.FC<{
                 return (
                     <div className="w-full mt-2 space-y-2">
                         {wallId && (
-                            <div className="flex items-center justify-between text-xs text-indigo-300 bg-indigo-950/60 border border-indigo-800/60 rounded-lg px-3 py-1.5 font-mono">
+                            <div className="hidden items-center justify-between text-xs text-indigo-300 bg-indigo-950/60 border border-indigo-800/60 rounded-lg px-3 py-1.5 font-mono" style={{ display: 'none' }}>
                                 <span className="flex items-center gap-1.5 font-semibold">
                                     🧱 Wall ID: <span className="bg-indigo-600 text-white px-2 py-0.5 rounded text-[11px] font-bold">{wallId}</span>
                                 </span>

@@ -1238,7 +1238,10 @@ export default function Welcome({
     }, [debouncedLinkQuery, searchMode]);
 
     useEffect(() => {
-        if (showLinkResults && linkResults.length > 0 && resultsContainerRef.current && currentPage === 1) {
+        const validResults = (Array.isArray(linkResults) ? linkResults : []).filter(
+            (r) => r && r.type?.toLowerCase() !== 'theme'
+        );
+        if (showLinkResults && validResults.length > 0 && resultsContainerRef.current && currentPage === 1) {
             resultsContainerRef.current.scrollIntoView({
                 behavior: 'smooth',
                 block: 'nearest'
@@ -2369,7 +2372,8 @@ export default function Welcome({
                     params: { 
                         query,
                         page,
-                        per_page: perPage
+                        per_page: perPage,
+                        exclude_theme: 1
                     },
                     headers: {
                         'Accept': 'application/json',
@@ -2385,9 +2389,14 @@ export default function Welcome({
             } else if (response.data?.results && typeof response.data.results === 'object') {
                 results = Object.values(response.data.results);
             }
+
+            // Exclude theme results from search results
+            results = results.filter(item => item && item.type?.toLowerCase() !== 'theme');
             
-            const total = response.data?.total || 0;
-            const allCount = response.data?.all_results_count || total;
+            const themeCount = response.data?.categories?.theme || 0;
+            const total = Math.max(0, (response.data?.total || 0) - themeCount);
+            const allCount = Math.max(0, (response.data?.all_results_count || response.data?.total || 0) - themeCount);
+            const calculatedTotalPages = Math.max(1, Math.ceil(total / (response.data?.per_page || perPage)));
             
             if (page === 1) {
                 setLinkResults(results);
@@ -2397,7 +2406,7 @@ export default function Welcome({
             
             setAllResultsCount(allCount);
             setCurrentPage(page);
-            setTotalPages(response.data?.total_pages || 1);
+            setTotalPages(themeCount > 0 ? calculatedTotalPages : (response.data?.total_pages || 1));
             setPerPage(response.data?.per_page || 10);
             setHasMore(response.data?.has_more || false);
             
@@ -3687,7 +3696,9 @@ export default function Welcome({
             );
         }
 
-        const resultsArray = Array.isArray(linkResults) ? linkResults : [];
+        const resultsArray = (Array.isArray(linkResults) ? linkResults : []).filter(
+            (result) => result && result.type?.toLowerCase() !== 'theme'
+        );
 
         if (resultsArray.length === 0 && !isSearchingLinks) {
             return (
@@ -3772,6 +3783,9 @@ export default function Welcome({
                 
                 <div className="overflow-y-auto max-h-[400px]">
                     {resultsArray.map((result, index) => {
+                        if (result.type?.toLowerCase() === 'theme') {
+                            return null;
+                        }
                         const typeStyles = getResultTypeStyles(result.type);
                         const globalIndex = (currentPage - 1) * perPage + index + 1;
                         
@@ -4504,7 +4518,10 @@ export default function Welcome({
                                             }, 200);
                                         }}
                                         onFocus={() => {
-                                            if (Array.isArray(linkResults) && linkResults.length > 0) {
+                                            const validResults = (Array.isArray(linkResults) ? linkResults : []).filter(
+                                                (r) => r && r.type?.toLowerCase() !== 'theme'
+                                            );
+                                            if (validResults.length > 0) {
                                                 setShowLinkResults(true);
                                             }
                                         }}
