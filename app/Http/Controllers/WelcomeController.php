@@ -1104,6 +1104,7 @@ class WelcomeController extends Controller
 		$favicon = 'https://ez.wiki/ezlogo.png';
 		$qrcodelogo= 'https://ez.wiki/ezlogo.png';
 		$effect = EffectSetting::where('ez_funnel_id', $funnel->ez_funnel_id)->get();
+		$token = 'ez.wiki';
 		if ($funnel) {
 			$seoSettings = FunnelSeoSetting::where('funnel_id', $funnel->ez_funnel_id)->first();   
 			if ($seoSettings) {
@@ -1129,8 +1130,10 @@ class WelcomeController extends Controller
 				}
 				$qrcodelogo= 'https://ez.wiki/'.$logoSettings->logoimage ?? $qrcodelogo;
 			}
+			$token = $funnel->token;
 		}
         return Inertia::render('AISearchView', [
+			'funnel' => $token,
             'tokenInfo' => $tokenInfo,
             'domains' => $domains,
             'promoprice' => $promoprice,
@@ -3781,6 +3784,7 @@ public function storelikedislike(Request $request)
 		$metaLogo = 'https://ez.wiki/ezlogo.png';
 		$favicon = 'https://ez.wiki/ezlogo.png';
 		$qrcodelogo= 'https://ez.wiki/ezlogo.png';
+		$token = 'ez.wiki';
 		if ($funnel) {
 			$seoSettings = FunnelSeoSetting::where('funnel_id', $funnel->ez_funnel_id)->first();   
 			if ($seoSettings) {
@@ -3806,8 +3810,11 @@ public function storelikedislike(Request $request)
 				}
 				$qrcodelogo= 'https://ez.wiki/'.$logoSettings->logoimage ?? $qrcodelogo;
 			}
+			$token = $funnel->token;
 		}
+		
         return Inertia::render('AISearchView', [
+			'funnel' => $token,
             'tokenInfo' => $tokenInfo,
             'domains' => $domains,
             'promoprice' => $promoprice,

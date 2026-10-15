@@ -733,7 +733,9 @@ class SearchController extends Controller
                 ];
             });
 
-        $allResults = $allResults->merge($themeResults);
+        if (!$request->boolean('exclude_theme', false) && $request->input('exclude_type') !== 'theme') {
+            $allResults = $allResults->merge($themeResults);
+        }
 
         // Search in AISearchHistory
         $aiHistoryResults = AISearchHistory::query()
@@ -2704,6 +2706,7 @@ class SearchController extends Controller
 		$favicon = 'https://ez.wiki/ezlogo.png';
 		$qrcodelogo= 'https://ez.wiki/ezlogo.png';
 		$funnelData = EzFunnel::where('ez_funnels.aiid', $search->id)->value('id');
+		$token = 'ez.wiki';
 		if ($funnelData) {
 			$seoSettings = FunnelSeoSetting::where('funnel_id', $funnelData)->first();
 			if ($seoSettings) {
@@ -2729,6 +2732,7 @@ class SearchController extends Controller
 				}
 				$qrcodelogo= 'https://ez.wiki/'.$logoSettings->logoimage ?? $qrcodelogo;
 			}
+			$token = $funnelData = EzFunnel::where('ez_funnels.aiid', $search->id)->value('token');
 		}
 
         // Fetch comments for this conversation and its messages
@@ -2773,6 +2777,7 @@ class SearchController extends Controller
             });
 
         return Inertia::render('AISearchView', [
+			'funnel' => $token,
             'initial_comments' => $initialComments,
             'tokenInfo' => $tokenInfo,
             'domains' => $domains,
