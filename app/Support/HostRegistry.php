@@ -17,7 +17,7 @@ use Illuminate\Support\Facades\Schema;
  */
 class HostRegistry
 {
-    public const CACHE_KEY = 'fleet.registry.v1';
+    public const CACHE_KEY = 'fleet.registry.v2';   // -7: bumped (old cached rows are simply ignored)
     public const LIVE = ['Active', 'Routed'];
 
     public static function ascii(?string $host): string
@@ -64,15 +64,17 @@ class HostRegistry
         } catch (\Throwable $e) {
             $rows = [];
         }
-        // Fallback: config hosts that have no row stay live (a row that exists wins, so
-        // an admin can still deactivate a domain by setting status to 'Inactive').
+        // EZ-REL-20261016-7: the original fleet (config fleet.fallback_domains) and the fixed hosts
+        // are ALWAYS routed, whatever their admindomains row says. admindomains.status only drives
+        // the for-sale / domain dropdowns. New shipyard domains (not in config) still need a row
+        // with status Active or Routed. The row may still set sso_enabled for a fallback domain.
         foreach ((array) config('fleet.fallback_domains', []) as $d) {
             $d = self::ascii($d);
-            $rows[$d] ??= ['kind' => 'fleet', 'sso' => true, 'live' => true];
+            $rows[$d] = ['kind' => 'fleet', 'sso' => $rows[$d]['sso'] ?? true, 'live' => true];
         }
         foreach ((array) config('fleet.fixed_hosts', []) as $d) {
             $d = self::ascii($d);
-            $rows[$d] ??= ['kind' => 'fixed', 'sso' => false, 'live' => true];
+            $rows[$d] = ['kind' => 'fixed', 'sso' => false, 'live' => true];
         }
         return $rows;
     }
