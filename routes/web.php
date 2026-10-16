@@ -138,6 +138,7 @@ Route::domain('a18.nug8.com')->group(function ($subdomain) {
     Route::get('/', function () {
     return view('embed');
 })->name('builder');
+});   // EZ-REL-20261016-7: close the a18 group here (it used to swallow everything down to the pages group)
 
 Route::domain('a20.nug8.com')->group(function ($subdomain) {
     Route::get('/', [TarotController::class, 'index'])->name('tarot.index');
@@ -161,7 +162,7 @@ Route::prefix('wall/auth')->group(function () {
     Route::get('me', [\App\Http\Controllers\Api\WallController::class, 'authMe'])->name('wall.auth.me');
 });
 
-Route::prefix('api/wall')->middleware(['web'])->group(function () {
+Route::prefix('api/wall')->middleware(['web', 'throttle:120,1'])->group(function () {   // -7: now on every host (session + CSRF); same throttle as routes/api.php
     Route::post('auth/send-otp', [\App\Http\Controllers\MagicLinkController::class, 'send']);
     Route::post('auth/verify-otp', [\App\Http\Controllers\MagicLinkController::class, 'verify']);
     Route::post('auth/magic/send', [\App\Http\Controllers\MagicLinkController::class, 'send']); // item 21
@@ -188,7 +189,9 @@ Route::post('/wall/upload-ezsheet-file', [\App\Http\Controllers\Api\WallControll
 Route::post('/wall/{id}/reorder', [\App\Http\Controllers\Api\WallController::class, 'reorderGone']);
 Route::post('/wall/{id}/cards/reorder', [\App\Http\Controllers\Api\WallController::class, 'reorderGone']);
 
-Route::prefix('pages')->group(function () {
+// EZ-REL-20261016-7: the saved-pages paste-bin was only reachable on a18.nug8.com (it sat inside the
+// unclosed a18 group). Keep it there on purpose: it serves user HTML and must not run on ez.wiki or the fleet.
+Route::domain('a18.nug8.com')->prefix('pages')->group(function () {
     Route::post('/',    [SavedPageController::class, 'store'])
         ->middleware('throttle:20,1')
         ->name('pages.store');
@@ -211,7 +214,7 @@ Route::prefix('pages')->group(function () {
         ->middleware('throttle:20,1')
         ->name('pages.destroy');
 });
-});
+
 Route::domain('a19.nug8.com')->group(function ($subdomain) {
 		Route::get('/', function () {
 		return view('a19');

@@ -83,7 +83,7 @@ class SsoHandoffTest extends TestCase
         $this->assertNotNull($d->fresh()->activated_at, 'activation hook stamps activated_at');
         $this->on('x.new-fleet.wiki')->get('/')->assertOk()->assertSee('FUNNEL:x');      // cache flushed on save
         Admindomain::create(['domain' => '4u.wiki', 'days' => 'all', 'status' => 'Inactive']);
-        $this->on(self::SUB2)->get('/')->assertStatus(404);                                // row beats fallback
+        $this->assertNotSame(404, $this->on(self::SUB2)->get('/')->getStatusCode());                                    // EZ-REL-7: fallback domains are always live
         $this->assertSame('sub', HostRegistry::resolve(self::SUB)['type'], 'fallback keeps current domains');
     }
 
