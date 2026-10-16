@@ -45,6 +45,13 @@ if (!appEl) {
     document.body.appendChild(appEl);
 }
 
+// EZ-REL-20261016-3: cross-domain sign-in info for the wall frame (props.sso)
+try {
+    (window as any).__EZ_SSO = JSON.parse(appEl.dataset.page || '{}')?.props?.sso || null;
+} catch {
+    (window as any).__EZ_SSO = null;
+}
+
 if (!appEl.dataset.page) {
     const pathname = window.location.pathname || '/';
     if (pathname.startsWith('/X/')) {

@@ -86,6 +86,8 @@ import '@fontsource/inter/600.css';
 import '@fontsource/instrument-sans/400.css';
 import '@fontsource/instrument-sans/500.css';
 import '@fontsource/instrument-sans/600.css';
+// @ts-ignore - plain JS helper (item 28)
+import { ezPushFeedback, ezPushErrorStatus, EZ_PUSH_TIMEOUT_MS } from '@/components/push-feedback.js';
 
 const stripePromise = loadStripe(import.meta.env.VITE_STRIPE_KEY || 'pk_live_51IyCo8Dpr0bpQPac24tix9UpShzoMw1uWsW3JvzcMrKVFnvUsXAnvBknJSPYucZCYSLT4Z0UVBeKx49jlYakdjIw00coa3YVdn');
 
@@ -369,6 +371,13 @@ class ErrorBoundary extends React.Component<{ children: React.ReactNode; fallbac
 }
 
 // Allowed file types for upload - 100MB limit
+/* EZ-REL-20261016-3: ONE rule for "which wall is this message?" (same on every host):
+   social_media_metadata.wall_id, then wall_id, then the message's own slug. */
+function ezWallIdOf(m: any, slug?: string | null): string {
+    const w = m?.social_media_metadata?.wall_id || m?.wall_id || slug || '';
+    return w ? String(w) : '';
+}
+
 const ALLOWED_FILE_TYPES = [
     'image/jpeg', 'image/jpg', 'image/png', 'image/gif', 'image/webp', 'image/bmp', 'image/svg+xml',
     'application/pdf',
@@ -994,10 +1003,10 @@ export default function AISearchView({
         content?: boolean;
         infomercial?: boolean;
         zones?: { a?: boolean; b?: boolean; c?: boolean };
-        fireworks?: boolean;
         flybees?: boolean;
         sound?: boolean;
         language?: string;
+        view?: string;   // EZ-REL-20261016-3: owner default view (beads | cards)
     }>>({});
 
     useEffect(() => {
@@ -1018,7 +1027,7 @@ export default function AISearchView({
                     // Strict whitelist of allowed wall settings to prevent prototype pollution or arbitrary injection
                     const ALLOWED_SETTING_KEYS = [
                         'layout', 'carousel', 'carousal', 'topic', 'content',
-                        'infomercial', 'zones', 'fireworks', 'flybees', 'sound', 'language'
+                        'infomercial', 'zones', 'flybees', 'sound', 'language', 'view'
                     ];
                     const cleanSettings: Record<string, any> = {};
                     for (const key of ALLOWED_SETTING_KEYS) {
@@ -1212,21 +1221,21 @@ export default function AISearchView({
         const wallIdsToFetch = new Set<string>();
 
         if ((search as any)?.format === 'ezsheet' || (search as any)?.social_media_metadata?.format === 'ezsheet') {
-            const wid = (search as any)?.social_media_metadata?.wall_id || (search as any)?.wall_id || search?.slug;
+            const wid = ezWallIdOf(search, search?.slug);
             if (wid) wallIdsToFetch.add(String(wid));
         }
 
         conversation.forEach((msg) => {
             const fmt = msg.social_media_metadata?.format || msg.format;
             if (fmt === 'ezsheet') {
-                const wid = msg.social_media_metadata?.wall_id || (msg as any).wall_id || msg.slug;
+                const wid = ezWallIdOf(msg, msg.slug);
                 if (wid) wallIdsToFetch.add(String(wid));
             }
         });
 
         dbComments.forEach((c) => {
             if (c.format === 'ezsheet') {
-                const wid = c.social_media_metadata?.wall_id || (c as any).wall_id || c.message_slug;
+                const wid = ezWallIdOf(c, c.message_slug);
                 if (wid) wallIdsToFetch.add(String(wid));
             }
         });
@@ -1263,10 +1272,10 @@ export default function AISearchView({
                                 b: res.data.content !== undefined ? Boolean(res.data.content) : true,
                                 c: res.data.infomercial !== undefined ? Boolean(res.data.infomercial) : true,
                             },
-                            fireworks: Boolean(res.data.fireworks),
                             flybees: res.data.flybees !== undefined ? Boolean(res.data.flybees) : true,
                             sound: res.data.sound !== undefined ? Boolean(res.data.sound) : true,
                             language: res.data.language || 'en',
+                            view: res.data.view === 'cards' ? 'cards' : 'beads',   // item 27: default Beads
                         },
                     }));
                 }
@@ -3489,8 +3498,34 @@ export default function AISearchView({
 
     // Pass 3: the editor sends the cid-tagged sheet; the server parses it (zones, identity).
     // The full response (or error body) goes back to the editor through `reply`.
+    // Item 28: push feedback is shown HERE on the parent page (the editor frame is as tall as
+    // the wall, so its own toast can be off-screen). 30 s timeout, one push per wall at a time.
+    const pushInFlightRef = useRef<Record<string, boolean>>({});
+    const pushMsgTimerRef = useRef<any>(null);
+    const wallSettingsMapRef = useRef<any>(null);
+    wallSettingsMapRef.current = wallSettingsMap;
+    const showPushFeedback = useCallback((status: number, body: any, lang: string) => {
+        const fb = ezPushFeedback(status, body, lang);
+        const text = [fb.text].concat(fb.lines || []).join('\n');
+        clearTimeout(pushMsgTimerRef.current);
+        if (fb.ok) { setErrorMessage(''); setSuccessMessage(text); }
+        else { setSuccessMessage(''); setErrorMessage(text); }
+        pushMsgTimerRef.current = setTimeout(() => { if (fb.ok) setSuccessMessage(''); else setErrorMessage(''); }, fb.ok ? 6000 : 15000);
+    }, []);
     const handlePushToWall = useCallback(async (msg: ConversationMessage, data: any, reply?: (status: number, body: any) => void) => {
-        const wallId = msg.social_media_metadata?.wall_id || (msg as any).wall_id || msg.slug || 'ezsheet';
+        const wallId = ezWallIdOf(msg, msg.slug) || 'ezsheet';
+        const lang = String(data?.lang || wallSettingsMapRef.current?.[wallId]?.language || document.documentElement.lang || navigator.language || 'en');
+        if (pushInFlightRef.current[wallId]) {
+            const busy = { error: 'busy' };
+            reply?.(409, busy);
+            showPushFeedback(409, busy, lang);
+            return;
+        }
+        pushInFlightRef.current[wallId] = true;
+        const ctl = new AbortController();
+        const timer = setTimeout(() => ctl.abort(), EZ_PUSH_TIMEOUT_MS);
+        let status = 0;
+        let body: any = { error: 'timeout' };
         try {
             const pushRes = await axios.post(`/api/wall/${encodeURIComponent(wallId)}/push-to-wall`, {
                 wall_id: wallId,
@@ -3499,21 +3534,28 @@ export default function AISearchView({
                 confirm_empty: data?.confirmEmpty ? 1 : 0,
                 // Item 11: texts the owner chose to add as WiKi cards although a Co-WiKi card has the same text.
                 add_cowiki_raws: Array.isArray(data?.addCowikiRaws) ? data.addCowikiRaws : [],
-            });
+            }, { signal: ctl.signal, timeout: EZ_PUSH_TIMEOUT_MS });
+            status = pushRes.status;
+            body = pushRes.data;
             if (Array.isArray(pushRes.data?.cards)) acceptWallSnapshot(wallId, pushRes.data.cards, pushRes.data.rev);
-            reply?.(pushRes.status, pushRes.data);
         } catch (err: any) {
-            const status = err?.response?.status ?? 0;
-            reply?.(status, err?.response?.data ?? { error: 'network' });
+            const e = ezPushErrorStatus(err);
+            status = e.status;
+            body = e.data;
             if (!err?.response) console.error('Failed to push to wall database:', err);
+        } finally {
+            clearTimeout(timer);
+            delete pushInFlightRef.current[wallId];
         }
-    }, [acceptWallSnapshot]);
+        reply?.(status, body);
+        showPushFeedback(status, body, lang);
+    }, [acceptWallSnapshot, showPushFeedback]);
 
     const renderSocialPost = (message: ConversationMessage) => {
     const content = message.query;
     const format = message.social_media_metadata?.format || message.format || 'markdown';
     const processed = detectAndProcessHtml(content);
-    const wallId = message.social_media_metadata?.wall_id || (message as any).wall_id || message.slug || 'ezsheet';
+    const wallId = ezWallIdOf(message, message.slug) || 'ezsheet';
     const wallCardContent = extractWallCardContent(content, wallId);
 
     const formatDisplay = format === 'markdown' ? '📝 Markdown' : format === 'html' ? '🌐 HTML' : '📊 EzSheet';
@@ -3577,7 +3619,6 @@ export default function AISearchView({
                         cols={wallSettingsMap[wallId]?.layout !== undefined ? (wallSettingsMap[wallId].layout === 'original' ? -1 : wallSettingsMap[wallId].layout === 'random' ? 0 : Number(wallSettingsMap[wallId].layout)) : undefined}
                         car={wallSettingsMap[wallId]?.carousel !== undefined ? wallSettingsMap[wallId].carousel : wallSettingsMap[wallId]?.carousal}
                         zones={wallSettingsMap[wallId]?.zones || (wallSettingsMap[wallId]?.topic !== undefined || wallSettingsMap[wallId]?.content !== undefined || wallSettingsMap[wallId]?.infomercial !== undefined ? { a: wallSettingsMap[wallId]?.topic ?? true, b: wallSettingsMap[wallId]?.content ?? true, c: wallSettingsMap[wallId]?.infomercial ?? true } : undefined)}
-                        fireworks={wallSettingsMap[wallId]?.fireworks}
                         flying={wallSettingsMap[wallId]?.flybees}
                         sound={wallSettingsMap[wallId]?.sound}
                         lang={wallSettingsMap[wallId]?.language || 'en'}
@@ -4321,7 +4362,7 @@ export default function AISearchView({
                                     }
 
                                     if (c.format === 'ezsheet' && !isAskAiCard) {
-                                        const commentWallId = c.social_media_metadata?.wall_id || (c as any).wall_id || message.slug || 'ezsheet';
+                                        const commentWallId = ezWallIdOf(c, (c as any).message_slug) || 'ezsheet';
                                         const commentWallCardContent = extractWallCardContent(userContent || c.content || '', commentWallId);
                                         return (
                                             <div className="space-y-2">
@@ -4349,7 +4390,6 @@ export default function AISearchView({
                                                     cols={wallSettingsMap[commentWallId]?.layout !== undefined ? (wallSettingsMap[commentWallId].layout === 'original' ? -1 : wallSettingsMap[commentWallId].layout === 'random' ? 0 : Number(wallSettingsMap[commentWallId].layout)) : undefined}
                                                     car={wallSettingsMap[commentWallId]?.carousel !== undefined ? wallSettingsMap[commentWallId].carousel : wallSettingsMap[commentWallId]?.carousal}
                                                     zones={wallSettingsMap[commentWallId]?.zones || (wallSettingsMap[commentWallId]?.topic !== undefined || wallSettingsMap[commentWallId]?.content !== undefined || wallSettingsMap[commentWallId]?.infomercial !== undefined ? { a: wallSettingsMap[commentWallId]?.topic ?? true, b: wallSettingsMap[commentWallId]?.content ?? true, c: wallSettingsMap[commentWallId]?.infomercial ?? true } : undefined)}
-                                                    fireworks={wallSettingsMap[commentWallId]?.fireworks}
                                                     flying={wallSettingsMap[commentWallId]?.flybees}
                                                     sound={wallSettingsMap[commentWallId]?.sound}
                                                     lang={wallSettingsMap[commentWallId]?.language || 'en'}
@@ -5559,7 +5599,7 @@ export default function AISearchView({
 
                 {errorMessage && !customAlert.show && (
                     <div
-                        className="fixed top-20 right-4 bg-red-600 text-white px-4 py-2 rounded-md shadow-lg z-50"
+                        className="fixed top-20 right-4 bg-red-600 text-white px-4 py-2 rounded-md shadow-lg z-50 whitespace-pre-line max-w-md" role="alert"
                         data-tooltip-id="main-tooltip"
                         data-tooltip-content={tooltips?.ai_search_view_error_notification || "Error notification"}
                     >
@@ -5570,7 +5610,7 @@ export default function AISearchView({
 
                 {successMessage && !showPrivateAccessModal && !customAlert.show && (
                     <div
-                        className="fixed top-20 right-4 bg-green-600 text-white px-4 py-2 rounded-md shadow-lg z-50"
+                        className="fixed top-20 right-4 bg-green-600 text-white px-4 py-2 rounded-md shadow-lg z-50 whitespace-pre-line max-w-md" role="status"
                         data-tooltip-id="main-tooltip"
                         data-tooltip-content={tooltips?.ai_search_view_success_notification || "Success notification"}
                     >

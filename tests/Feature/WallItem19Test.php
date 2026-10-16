@@ -103,10 +103,12 @@ class WallItem19Test extends TestCase
         $this->assertSame(['Topic title', 'm1', 'old*', 'pend', 'm2', 'm3', 'Ad text'], $this->order());
     }
 
-    public function test_no_pins_in_topic_or_infomercial(): void
+    public function test_pins_work_in_topic_and_infomercial_and_stay_in_their_zone(): void
     {
-        $this->pin($this->m('Topic title')->cid)->assertStatus(422)->assertJson(['error' => 'pin_zone']);
-        $this->pin($this->m('Ad text')->cid)->assertStatus(422)->assertJson(['error' => 'pin_zone']);
+        // item 26: pin/unpin works in every zone; a pin only reorders inside its own zone
+        $this->pin($this->m('Topic title')->cid)->assertOk();
+        $this->pin($this->m('Ad text')->cid)->assertOk();
+        $this->assertSame(['Topic title*', 'm1', 'm2', 'm3', 'Ad text*'], $this->order());
         $this->pin('nope')->assertStatus(404);
     }
 

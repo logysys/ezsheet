@@ -111,23 +111,27 @@ class WallController extends Controller
         return hash_equals($w->owner_hash, WallHasher::owner($tok));
     }
 
-    /** False only for a state-changing request that the browser marks as
-     *  coming from another site (Sec-Fetch-Site, else Origin host). */
+    /** EZ-REL-20261016-3: strict same-ORIGIN for state-changing requests.
+     *  Sec-Fetch-Site must be 'same-origin' (or 'none'); 'same-site' (e.g. a sibling
+     *  subdomain like evil.ez.wiki) is refused. If Origin is sent it must equal this
+     *  request's own host. Each fleet host is checked for its own origin. */
     private function sameSiteRequest(Request $r): bool
     {
         if (in_array($r->method(), ['GET', 'HEAD', 'OPTIONS'], true)) {
             return true;
         }
         $site = strtolower((string) $r->header('sec-fetch-site', ''));
-        if ($site !== '') {
-            return in_array($site, ['same-origin', 'same-site', 'none'], true);
+        if ($site !== '' && !in_array($site, ['same-origin', 'none'], true)) {
+            return false;
         }
         $origin = (string) $r->header('origin', '');
         if ($origin === '') {
-            return true;
+            return true;   // old browsers / non-browser clients: other checks (auth, owner) still apply
         }
+        // exact host (not just the registrable domain). Scheme/port are not compared because
+        // behind nginx/Cloudflare the app may see http while the browser sends https.
         $host = parse_url($origin, PHP_URL_HOST);
-        return is_string($host) && strcasecmp($host, $r->getHost()) === 0;
+        return is_string($host) && $host !== '' && strcasecmp($host, $r->getHost()) === 0;
     }
 
     /** Logged-in / guest-session / guest-token user id. Never trusts a client-sent user_id. */
@@ -230,14 +234,16 @@ class WallController extends Controller
     /** item 19: why a card cannot be pinned, or null when it can. */
     private function pinRefusal(WallCard $c, ?WallCard $mother = null): ?string
     {
+        // item 26: pinning works in every zone (Topic, Content, InfoMercial); a pin only
+        // reorders inside its own zone because ZONE_ORDER is sorted first.
         if ($c->isMother()) {
-            return ((string) ($c->zone ?? 'b')) === 'b' ? null : 'pin_zone';
+            return null;
         }
         if ($c->status === 'pending') {
             return 'pin_not_approved';
         }
-        if (!$mother || ((string) ($mother->zone ?? 'b')) !== 'b') {
-            return 'pin_zone';
+        if (!$mother) {
+            return 'pin_no_mother';
         }
         return null;
     }
@@ -306,9 +312,11 @@ class WallController extends Controller
         $newest = fn ($a, $b) => [$pinOf($b), $cardTs($b), $b->id] <=> [$pinOf($a), $cardTs($a), $a->id];
 
         $out = [];
+        $zoneOf = [];   // item 26: a child is emitted in its mother's zone (legacy rows may say 'b')
         foreach ($mothers as $m) {
             $kids = $byMother[$m->id] ?? [];
             usort($kids, $newest);
+            foreach ($kids as $k) $zoneOf[$k->id] = (string) ($m->zone ?: 'b');
             if (self::CHILDREN_PLACEMENT === 'before') {
                 foreach (array_reverse($kids) as $k) $out[] = $k;
                 $out[] = $m;
@@ -321,8 +329,9 @@ class WallController extends Controller
         usort($orphans, $newest);
         foreach ($orphans as $o) $out[] = $o;
 
-        return array_map(function ($c) use ($pinOf) {
+        return array_map(function ($c) use ($pinOf, $zoneOf) {
             $j = $this->cardJson($c);
+            if (isset($zoneOf[$c->id])) $j['zone'] = $zoneOf[$c->id];
             $j['pinned'] = $pinOf($c) ?: null;
             return $j;
         }, $out);
@@ -495,11 +504,11 @@ class WallController extends Controller
                 'topic'       => $wall->topic ?? ($meta['topic'] ?? ($zones['a'] ?? true)),
                 'content'     => $wall->content ?? ($meta['content'] ?? ($zones['b'] ?? true)),
                 'infomercial' => $wall->infomercial ?? ($meta['infomercial'] ?? ($zones['c'] ?? true)),
-                'fireworks'   => $wall->fireworks ?? ($meta['fireworks'] ?? null),
                 'flybees'     => $wall->flybees ?? ($meta['flybees'] ?? null),
                 'sound'       => $wall->sound ?? ($meta['sound'] ?? null),
                 'language'    => $wall->language ?? ($meta['language'] ?? null),
-                'view'        => ($meta['view'] ?? 'cards') === 'beads' ? 'beads' : 'cards',
+                // item 27: system default is Beads; only an explicit owner 'cards' shows Cards
+                'view'        => ($meta['view'] ?? 'beads') === 'cards' ? 'cards' : 'beads',
                 'meta'        => $meta,
             ]);
         } catch (\Throwable $e) {
@@ -598,13 +607,8 @@ class WallController extends Controller
                 }
             }
 
-            // 6. Fireworks on/off
-            if ($r->has('fireworks')) {
-                $fw = filter_var($r->input('fireworks'), FILTER_VALIDATE_BOOLEAN);
-                $wall->fireworks = $fw;
-                $meta['fireworks'] = $fw;
-                $meta['fx']['fw'] = $fw;
-            }
+            // 6. (removed in EZ-REL-20261016-5 rev 2) Fireworks: the effect is gone; a 'fireworks'
+            //    input is ignored and stored values are left alone.
 
             // 7. Flybees on/off
             if ($r->has('flybees')) {
@@ -656,7 +660,6 @@ class WallController extends Controller
                     'topic'       => (bool)$wall->topic,
                     'content'     => (bool)$wall->content,
                     'infomercial' => (bool)$wall->infomercial,
-                    'fireworks'   => (bool)$wall->fireworks,
                     'flybees'     => (bool)$wall->flybees,
                     'sound'       => (bool)$wall->sound,
                     'language'    => $wall->language,
@@ -713,9 +716,7 @@ class WallController extends Controller
         if (!$mother->isMother()) {
             return response()->json(['error' => 'anchor_not_mother', 'message' => 'Co-WiKi cards attach to a WiKi card, not to another Co-WiKi card.'], 422);
         }
-        if (($mother->zone ?? 'b') !== 'b') {
-            return response()->json(['error' => 'anchor_zone', 'message' => 'Co-WiKi cards can only be added in the Content zone.'], 422);
-        }
+        // item 26: Co-WiKi works on WiKi cards in all three zones (no anchor_zone check any more).
 
         // Approved cards do not count toward the wall's limit (500 pending max).
         $pendingCount = WallCard::where('wall_id', $wall->id)
@@ -758,7 +759,7 @@ class WallController extends Controller
                     'content'     => $raw,
                     'anchor'      => (string) $mother->cid,
                     'mother_id'   => $mother->id,
-                    'zone'        => 'b',
+                    'zone'        => in_array($mother->zone, ['a', 'b', 'c'], true) ? $mother->zone : 'b', // item 26
                     'origin'      => 'cowiki',
                     // Owner-written Co-WiKi cards are auto-approved; guests start pending.
                     'status'      => $isOwner ? 'approved' : 'pending',
@@ -798,9 +799,7 @@ class WallController extends Controller
         if (!$mother->isMother()) {
             return response()->json(['error' => 'anchor_not_mother', 'message' => 'Co-WiKi cards attach to a WiKi card, not to another Co-WiKi card.'], 422);
         }
-        if (($mother->zone ?? 'b') !== 'b') {
-            return response()->json(['error' => 'anchor_zone', 'message' => 'Topic and InfoMercial cards do not take Co-WiKi cards.'], 422);
-        }
+        // item 26: media Co-WiKi also works in all three zones.
         if (WallCard::where('wall_id', $wall->id)->where('status', 'pending')->count() >= 500) {
             return response()->json(['error' => 'limit_exceeded', 'message' => 'Pending cards limit reached (maximum 500 pending cards allowed).'], 422);
         }
@@ -1168,23 +1167,8 @@ class WallController extends Controller
                 ->map->count();
             $match = $this->matchMothers($blocks, $mothers, $childCount);
 
-            // A mother that has Co-WiKi children may not leave zone b. Reject the whole push.
-            $locked = [];
-            foreach ($match as $i => $mid) {
-                if (($childCount[$mid] ?? 0) > 0 && $blocks[$i]['zone'] !== 'b') {
-                    $m = $mothers[$mid];
-                    $locked[] = ['cid' => $m->cid, 'raw' => mb_substr((string) $blocks[$i]['raw'], 0, 120),
-                                 'to_zone' => $blocks[$i]['zone'], 'children' => $childCount[$mid]];
-                }
-            }
-            if ($locked) {
-                throw new \App\Support\PushRejected(422, [
-                    'success' => false,
-                    'error'   => 'mother_zone_locked',
-                    'message' => 'WiKi cards that have Co-WiKi cards must stay in the Content zone. Nothing was saved.',
-                    'cards'   => $locked,
-                ]);
-            }
+            // item 26: a mother with Co-WiKi children may now move to any zone; the family
+            // moves with her (children's zone is synced right after the mothers are saved).
 
             // A sheet that carries cid tags says exactly which mothers it still has, so a
             // missing tagged mother is "clearly removed". Without tags we never delete a
@@ -1228,6 +1212,15 @@ class WallController extends Controller
                     $keep[$new->id] = true;
                     $created++;
                 }
+            }
+
+            // item 26: children always live in their mother's zone.
+            foreach (WallCard::where('wall_id', $wall->id)->get() as $fm) {
+                if (!$fm->isMother()) continue;
+                WallCard::where('wall_id', $wall->id)
+                    ->where(fn ($q) => $q->where('mother_id', $fm->id)->orWhere(fn ($q2) => $q2->whereNull('mother_id')->where('anchor', $fm->cid)))
+                    ->where('zone', '!=', $fm->zone)
+                    ->update(['zone' => $fm->zone]);
             }
 
             // Mothers no longer in the sheet: delete children explicitly (DBs without FK),

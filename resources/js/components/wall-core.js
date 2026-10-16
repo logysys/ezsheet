@@ -545,7 +545,7 @@ function cornerHTML(o){
   return '<div class="corner '+cls+'" aria-hidden="true"><svg viewBox="0 0 52 52"><path class="c-fill" d="M0 0H52L0 52Z"/><path class="c-edge" d="M52 0L0 52"/></svg><span class="c-lbl">'+(co?'Co-WiKi':'WiKi')+'</span></div>';
 }
 /* + and - live together in the lower-right corner (rule 3.1).
-   +  : mother cards in zone b only, when a server is connected (rules 2.2, 3.2)
+   +  : every mother card, in all three zones (item 26), when a server is connected (rules 2.2, 3.2)
    -  : Co-WiKi children only; owner always, author only while pending (3.3, 5.2)
    No move handle, no ◀/▶, no drag: order comes from EzSheet (6.4). */
 function toolsHTML(o){
@@ -761,7 +761,7 @@ function insertDialog(guest,onSave,opt){
   box.addEventListener('click',e=>{if(e.target===box)insClose();});
   btnNo.addEventListener('click',insClose);
   /* item 17: open next to the + (cursor), clamped to the viewport; bottom sheet on phones */
-  ezPlaceBox(box,opt.at);
+  ezPlaceBox(box,opt.at,insClose);
   if(opt.draft){const ta0=box.querySelector('#insTa');if(ta0){ta0.value=opt.draft;ta0.dispatchEvent(new Event('input'));}}
   /* item 18: media upload into this Co-WiKi (signed-in users; pending until approved) */
   const up=box.querySelector('#insUp');
@@ -964,8 +964,29 @@ function wallMe(){
 }
 function ownerToken(){try{return localStorage.getItem('wall_owner')||'';}catch(e){return '';}}
 function setOwnerToken(v){try{v?localStorage.setItem('wall_owner',v):localStorage.removeItem('wall_owner');}catch(e){}}
+/* EZ-REL-20261016-3: CSRF back on for session routes -> send Laravel's XSRF-TOKEN cookie
+   value (same-origin requests only; never to another origin). */
+function ezCsrfHeaders(){
+  let v='';
+  try{const m=document.cookie.match(/(?:^|;\s*)XSRF-TOKEN=([^;]+)/);if(m)v=decodeURIComponent(m[1]);}catch(e){}
+  return v?{'X-XSRF-TOKEN':v}:{};
+}
+function ezSameOriginSync(){
+  const eo=String(getEffectiveOrigin()||'').replace(/\/+$/,'');
+  if(!eo)return true;
+  try{if(eo===window.location.origin)return true;}catch(e){}
+  try{if(eo===window.top.location.origin)return true;}catch(e){}
+  return false;
+}
+/* EZ-REL-20261016-3: cross-domain sign-in info shared by the server (props.sso) */
+function ezSsoInfo(){
+  try{if(window.parent&&window.parent!==window&&window.parent.__EZ_SSO)return window.parent.__EZ_SSO;}catch(e){}
+  try{if(window.top&&window.top.__EZ_SSO)return window.top.__EZ_SSO;}catch(e){}
+  return (typeof window!=='undefined'&&window.__EZ_SSO)||null;
+}
 function syncHeaders(json){
   const hd={'x-wall-me':wallMe()};
+  if(ezSameOriginSync())Object.assign(hd,ezCsrfHeaders());
   if(json)hd['content-type']='application/json';
   const o=ownerToken();if(o)hd['x-wall-owner']=o;
   if(typeof window !== 'undefined') {
@@ -1396,7 +1417,7 @@ const validCols=c=>Number.isInteger(c)&&c>=0&&c<=COLS_MAX;
 
 
 /* ---------- 多語系（編輯器與獨立牆共用，預設英文） ---------- */
-const I18N={"en": {"title": "Wall editor", "upload": "Upload", "download": "Download", "copyWall": "Copy standalone wall", "dlWall": "Download standalone wall", "clear": "Clear", "hint": "Enter adds a ━━━━ divider | a boundary labels the block above it: ### = InfoMercial, === = Topic; whatever is left is Content | Shift+Enter: line break only | Ctrl+Enter: push to wall", "placeholder": "Paste URLs, one per line", "cancel": "Cancel", "push": "✓ Push to wall", "count": "{n} items", "layout": "Layout", "random": "Random", "cols": "{n} columns", "col1": "1 column", "openEditor": "Open editor", "close": "Close", "edit": "Edit", "language": "Language", "noInput": "No URLs or embed code found", "skipped": "Skipped {n} unrecognized line(s)", "storageFull": "⚠️ Not saved: browser storage is full or disabled. Download a backup first.", "emptyWall": "The wall is empty. Add content first.", "copied": "✓ Standalone wall HTML copied ({n} items)", "clipFallback": "Clipboard unavailable. Downloaded .html instead.", "downloaded": "✓ Standalone wall downloaded ({n} items)", "fileEmpty": "No usable content in this file", "loaded": "✓ Loaded {n} items", "loadedSkip": ", {n} skipped", "confirmClear": "Clear this wall?", "wallEmpty": "This wall has no content yet", "del": "Delete", "original": "Original", "shuffle": "Shuffle", "markTomb": "Mark as non-embeddable", "tryEmbed": "Try embedding again", "carousel": "Carousel", "prev": "Previous", "next": "Next", "page": "Page {n}", "filter": "Filter", "searchPh": "Search titles, sites, #tags…", "fType": "Type", "fDate": "Date", "fSort": "Sort", "tAll": "All types", "tVideo": "Video", "tAudio": "Audio", "tPage": "Web pages", "tHtml": "HTML", "tBlocked": "Non-embeddable", "dAny": "Any date", "dToday": "Today", "d7": "Last 7 days", "d30": "Last 30 days", "sWall": "Sort: wall order", "sNew": "Newest first", "sOld": "Oldest first", "sLong": "Longest first", "sShort": "Shortest first", "sAz": "Title A–Z", "results": "{n} of {m}", "fClear": "Clear", "noMatch": "No cards match these filters", "fTitle": "Title", "fTags": "Tags", "fLength": "Length", "tagsPh": "comma, separated", "lenPh": "mm:ss", "fxToggle": "Effects", "resetPos": "Reset positions", "moveCard": "Move card", "fxFire": "Fireworks", "fxFly": "Flying bees", "fxSound": "Sound", "tabSheet": "EzSheet", "tabPics": "Images & 3D", "picDrop": "Drop images or 3D models here, or click to choose files", "picHint": "Images and 3D models (.glb .gltf .stl .obj) are inlined into the wall, so nothing is fetched from the network. Each one can become a card; images can also replace the flying sprites in Topic.", "asCard": "As card", "asSprite": "As flying sprite", "picAdd": "Add as cards", "picSprites": "Use as sprites", "spriteReset": "Default bees", "picZoneA": "Topic", "picZoneB": "Content", "picAdded": "{n} image card(s) added", "spriteOk": "{n} flying sprite(s) applied", "picNone": "No images yet", "zA": "Topic band", "zB": "Content wall", "zC": "InfoMercial band", "zorder": "Zone order", "zorderHint": "Drag to set the order of the two top bands", "picZoneC": "InfoMercial", "tModel": "3D models", "picTooBig": "{n} file(s) skipped: over 12 MB", "picBadType": "{n} file(s) skipped: not an image or 3D model", "insCard": "Insert a card before this one", "insTitle": "Insert a card", "insHintOwner": "Paste a URL, an embed code, or Markdown. It goes in right before this card.", "insHintGuest": "Paste a URL, an embed code, or Markdown. It goes in right before this card, and is kept only in this browser — other visitors will not see it.", "insPh": "https://…  ·  <iframe> embed code  ·  <md>…</md>  ·  https://…/model.glb", "insSave": "Save and insert", "insCancel": "Cancel", "insBad": "That is not a URL, an embed code, or a <md>…</md> block this wall can show.", "insDone": "✓ One card inserted", "insDel": "Remove the card you added", "revTitle": "Co-WiKi cards", "revDrop": "Remove this card", "revHint": "Visitor cards go live immediately as Co-WiKi. ✓ approves one and makes it permanent; ✕ removes it for everyone.", "revNone": "No visitor cards yet", "revDenied": "Only the wall owner can do this. Sign in as the owner (or check the owner key).", "revFail": "Could not reach the server.", "revTimeout": "The server did not answer in time. Close and try again.", "revAsk": "Owner key", "syncOn": "Live — shared with every visitor", "syncOff": "Offline — new cards stay in this browser until the connection is back", "insHintLive": "Paste a URL, an embed code, or Markdown. It goes in right before this card as a Co-WiKi card, every visitor sees it straight away, and it becomes permanent once the owner approves it.", "insBusy": "The server would not take that card.", "insRate": "Too many cards from here for now. Try again later.", "insDown": "This wall is offline at the moment, so a new card cannot be shared yet. Wait for the dot on the bar to turn green, then try again.", "insBig": "This Markdown card is too long.", "insMd": "M↓ Markdown", "insKinds": "3D: paste a Sketchfab embed or a public https link to .glb / .stl / .obj", "insMdTpl": "# Title\n\nWrite **Markdown** here — lists, tables, links and https images all work.", "revOk": "Approve — make this card permanent", "revPend": "Pending", "revOkd": "Approved", "tMd": "Markdown", "sprTitle": "Flying sprites 🐝", "sprHint": "The two built-in bees are ready to swap: ⇄ replaces one, ✕ removes it, ＋ adds one (up to 4), or drop an image on a slot. Remove them all and the 🐝 button is disabled for visitors.", "sprRep": "Replace image", "sprDel": "Remove", "sprAdd": "Add a flying sprite", "sprReset": "Back to the built-in bees", "sprDef": "built-in", "sprNone": "No flying sprites — the 🐝 button will be disabled.", "sprBig": "That image is over 2 MB.", "foldMore": "⌄ Show all", "foldLess": "⌃ Show less"}, "zh-TW": {"title": "牆面編輯", "upload": "上傳", "download": "下載", "copyWall": "複製獨立牆", "dlWall": "下載獨立牆", "clear": "清空", "hint": "Enter 自動加━━━━分隔｜界線標記「線以上那一段」：### 以上是 InfoMercial，=== 以上是 Topic，其餘是 Content｜Shift+Enter 純換行｜Ctrl+Enter 推上牆", "placeholder": "貼網址，每行一個", "cancel": "取消", "push": "✓ 推上牆", "count": "{n} 組", "layout": "版面", "random": "自由隨機", "cols": "{n} 欄", "openEditor": "開啟編輯面板", "close": "關閉", "edit": "編輯", "language": "語言", "noInput": "沒抓到可用的網址或嵌入碼", "skipped": "已略過 {n} 行無法辨識的內容", "storageFull": "⚠️ 沒存到：瀏覽器儲存空間已滿或被停用，請先下載備份", "emptyWall": "牆是空的，先推內容上牆", "copied": "✓ 已複製獨立牆 HTML（{n} 組）", "clipFallback": "剪貼簿無法使用，已改為下載 .html", "downloaded": "✓ 已下載獨立牆（{n} 組）", "fileEmpty": "檔案裡沒有可用的內容", "loaded": "✓ 已載入 {n} 組", "loadedSkip": "，略過 {n} 組", "confirmClear": "清空這面牆？", "wallEmpty": "這面牆目前沒有內容", "del": "刪除", "original": "原始版面", "shuffle": "洗牌", "markTomb": "標示為無法嵌入", "tryEmbed": "重新嘗試嵌入", "carousel": "輪播", "prev": "上一頁", "next": "下一頁", "page": "第 {n} 頁", "filter": "篩選", "searchPh": "搜尋標題、網站、#標籤…", "fType": "類型", "fDate": "日期", "fSort": "排序", "tAll": "所有類型", "tVideo": "影片", "tAudio": "音訊", "tPage": "網頁", "tHtml": "HTML", "tBlocked": "無法嵌入", "dAny": "不限日期", "dToday": "今天", "d7": "最近 7 天", "d30": "最近 30 天", "sWall": "排序：牆面順序", "sNew": "最新優先", "sOld": "最舊優先", "sLong": "最長優先", "sShort": "最短優先", "sAz": "標題 A–Z", "results": "{n} / {m}", "fClear": "清除", "noMatch": "沒有符合篩選條件的卡片", "fTitle": "標題", "fTags": "標籤", "fLength": "長度", "tagsPh": "以逗號分隔", "lenPh": "分:秒", "fxToggle": "特效", "resetPos": "一鍵復位", "moveCard": "拖曳搬移", "fxFire": "煙火", "fxFly": "飛行物", "fxSound": "音效", "tabSheet": "EzSheet", "tabPics": "圖檔與 3D", "picDrop": "把圖檔或 3D 模型拖到這裡，或點一下選擇檔案", "picHint": "圖片與 3D 模型（.glb .gltf .stl .obj）會直接內嵌進牆面，不依賴外部網址。每個都可以變成一張卡片；圖片還可以取代 Topic 區的飛行圖示。", "asCard": "當卡片", "asSprite": "當飛行圖示", "picAdd": "加入為卡片", "picSprites": "套用為飛行圖示", "spriteReset": "回到預設蜜蜂", "picZoneA": "放 Topic", "picZoneB": "放 Content", "picAdded": "已加入 {n} 張圖卡", "spriteOk": "已套用 {n} 個飛行圖示", "picNone": "還沒有圖檔", "zA": "Topic（主題帶）", "zB": "Content（內容牆）", "zC": "InfoMercial（業配帶）", "zorder": "區塊順序", "zorderHint": "拖曳調整上方兩條帶（Topic／InfoMercial）的順序", "picZoneC": "放 InfoMercial", "tModel": "3D 模型", "picTooBig": "已略過 {n} 個檔案：超過 12 MB", "picBadType": "已略過 {n} 個檔案：不是圖檔或 3D 模型", "insCard": "在這張卡前面插入一張", "insTitle": "插入新卡", "insHintOwner": "貼上網址、嵌入碼或 Markdown，會插在這張卡的前面。", "insHintGuest": "貼上網址、嵌入碼或 Markdown，會插在這張卡的前面。只存在你這台瀏覽器裡，其他訪客看不到。", "insPh": "https://…　·　<iframe> 嵌入碼　·　<md>…</md>　·　https://…/model.glb", "insSave": "儲存並插入", "insCancel": "取消", "insBad": "這段內容不是網址、嵌入碼，也不是這面牆能呈現的 <md>…</md> 區塊。", "insDone": "✓ 已插入一張卡", "insDel": "移除你加的這張卡", "revTitle": "Co-WiKi 來客卡", "revDrop": "移除這張卡", "revHint": "來客卡以 Co-WiKi 即時公開。按 ✓ 認可成為永久卡；按 ✕ 移除，所有人那邊會立刻消失。", "revNone": "目前沒有訪客卡片", "revDenied": "只有版主可以操作。請以版主帳號登入（或檢查版主金鑰）。", "revFail": "連不上伺服器。", "revTimeout": "伺服器沒有及時回應，請關閉後再試一次。", "revAsk": "版主金鑰", "syncOn": "連線中——所有訪客同步看到", "syncOff": "離線——新卡先留在這台瀏覽器，連上後再送出", "insHintLive": "貼上網址、嵌入碼或 Markdown，會以 Co-WiKi 卡插在這張卡的前面，所有訪客立刻看得到；版主認可後成為永久卡。", "insBusy": "伺服器不接受這張卡。", "insRate": "這裡送出的卡太多了，請稍後再試。", "insDown": "這面牆目前連不上伺服器，新卡還送不出去。等上方那顆點變綠再試一次。", "insBig": "這張 Markdown 卡太長了。", "insMd": "M↓ Markdown", "insKinds": "3D：貼 Sketchfab 嵌入碼，或 .glb／.stl／.obj 的公開 https 網址", "insMdTpl": "# 標題\n\n在這裡寫 **Markdown**：清單、表格、連結、https 圖片都可以。", "revOk": "認可：升級為永久卡", "revPend": "待審", "revOkd": "已認可", "tMd": "Markdown", "sprTitle": "飛行圖示 🐝", "sprHint": "內建的兩隻蜜蜂可以直接替換：⇄ 換圖、✕ 移除、＋ 新增（最多 4 張），也可以把圖檔拖到格子上。全部移除時，訪客的 🐝 鍵會停用。", "sprRep": "換圖", "sprDel": "移除", "sprAdd": "新增飛行圖示", "sprReset": "恢復內建蜜蜂", "sprDef": "內建", "sprNone": "沒有飛行圖示：🐝 鍵將停用。", "sprBig": "圖檔超過 2 MB。", "foldMore": "⌄ 展開全文", "foldLess": "⌃ 收合"}, "zh-CN": {"title": "墙面编辑", "upload": "上传", "download": "下载", "copyWall": "复制独立墙", "dlWall": "下载独立墙", "clear": "清空", "hint": "Enter 自动加━━━━分隔｜界线标记“线以上那一段”：### 以上是 InfoMercial，=== 以上是 Topic，其余是 Content｜Shift+Enter 纯换行｜Ctrl+Enter 推上墙", "placeholder": "粘贴网址，每行一个", "cancel": "取消", "push": "✓ 推上墙", "count": "{n} 组", "layout": "版面", "random": "自由随机", "cols": "{n} 栏", "openEditor": "打开编辑面板", "close": "关闭", "edit": "编辑", "language": "语言", "noInput": "没抓到可用的网址或嵌入码", "skipped": "已跳过 {n} 行无法识别的内容", "storageFull": "⚠️ 没保存：浏览器存储空间已满或被禁用，请先下载备份", "emptyWall": "墙是空的，先推内容上墙", "copied": "✓ 已复制独立墙 HTML（{n} 组）", "clipFallback": "剪贴板无法使用，已改为下载 .html", "downloaded": "✓ 已下载独立墙（{n} 组）", "fileEmpty": "文件里没有可用的内容", "loaded": "✓ 已载入 {n} 组", "loadedSkip": "，跳过 {n} 组", "confirmClear": "清空这面墙？", "wallEmpty": "这面墙目前没有内容", "del": "删除", "original": "原始版面", "shuffle": "洗牌", "markTomb": "标记为无法嵌入", "tryEmbed": "重新尝试嵌入", "carousel": "轮播", "prev": "上一页", "next": "下一页", "page": "第 {n} 页", "filter": "筛选", "searchPh": "搜索标题、网站、#标签…", "fType": "类型", "fDate": "日期", "fSort": "排序", "tAll": "所有类型", "tVideo": "视频", "tAudio": "音频", "tPage": "网页", "tHtml": "HTML", "tBlocked": "无法嵌入", "dAny": "不限日期", "dToday": "今天", "d7": "最近 7 天", "d30": "最近 30 天", "sWall": "排序：墙面顺序", "sNew": "最新优先", "sOld": "最旧优先", "sLong": "最长优先", "sShort": "最短优先", "sAz": "标题 A–Z", "results": "{n} / {m}", "fClear": "清除", "noMatch": "没有符合筛选条件的卡片", "fTitle": "标题", "fTags": "标签", "fLength": "长度", "tagsPh": "用逗号分隔", "lenPh": "分:秒", "fxToggle": "特效", "resetPos": "一键复位", "moveCard": "拖曳搬移", "fxFire": "烟火", "fxFly": "飞行物", "fxSound": "音效", "tabSheet": "EzSheet", "tabPics": "图档与 3D", "picDrop": "把图档或 3D 模型拖到这里，或点一下选择文件", "picHint": "图片与 3D 模型（.glb .gltf .stl .obj）会直接内嵌进墙面，不依赖外部网址。每个都可以变成一张卡片；图片还可以取代 Topic 区的飞行图示。", "asCard": "当卡片", "asSprite": "当飞行图示", "picAdd": "加入为卡片", "picSprites": "套用为飞行图示", "spriteReset": "回到默认蜜蜂", "picZoneA": "放 Topic", "picZoneB": "放 Content", "picAdded": "已加入 {n} 张图卡", "spriteOk": "已套用 {n} 个飞行图示", "picNone": "还没有图档", "zA": "Topic（主题带）", "zB": "Content（内容墙）", "zC": "InfoMercial（推广带）", "zorder": "区块顺序", "zorderHint": "拖拽调整上方两条带（Topic／InfoMercial）的顺序", "picZoneC": "放 InfoMercial", "tModel": "3D 模型", "picTooBig": "已跳过 {n} 个文件：超过 12 MB", "picBadType": "已跳过 {n} 个文件：不是图档或 3D 模型", "insCard": "在这张卡前面插入一张", "insTitle": "插入新卡", "insHintOwner": "粘贴网址、嵌入码或 Markdown，会插在这张卡的前面。", "insHintGuest": "粘贴网址、嵌入码或 Markdown，会插在这张卡的前面。只存在你这台浏览器里，其他访客看不到。", "insPh": "https://…　·　<iframe> 嵌入码　·　<md>…</md>　·　https://…/model.glb", "insSave": "保存并插入", "insCancel": "取消", "insBad": "这段内容不是网址、嵌入码，也不是这面墙能呈现的 <md>…</md> 区块。", "insDone": "✓ 已插入一张卡", "insDel": "移除你加的这张卡", "revTitle": "Co-WiKi 来客卡", "revDrop": "移除这张卡", "revHint": "来客卡以 Co-WiKi 即时公开。按 ✓ 认可成为永久卡；按 ✕ 移除，所有人那边会立刻消失。", "revNone": "目前没有访客卡片", "revDenied": "只有版主可以操作。请以版主账号登录（或检查版主密钥）。", "revFail": "连不上服务器。", "revTimeout": "服务器没有及时响应，请关闭后再试一次。", "revAsk": "版主密钥", "syncOn": "连线中——所有访客同步看到", "syncOff": "离线——新卡先留在这台浏览器，连上后再送出", "insHintLive": "粘贴网址、嵌入码或 Markdown，会以 Co-WiKi 卡插在这张卡的前面，所有访客立刻看得到；版主认可后成为永久卡。", "insBusy": "服务器不接受这张卡。", "insRate": "这里送出的卡太多了，请稍后再试。", "insDown": "这面墙目前连不上服务器，新卡还送不出去。等上方那颗点变绿再试一次。", "insBig": "这张 Markdown 卡太长了。", "insMd": "M↓ Markdown", "insKinds": "3D：粘贴 Sketchfab 嵌入码，或 .glb／.stl／.obj 的公开 https 网址", "insMdTpl": "# 标题\n\n在这里写 **Markdown**：列表、表格、链接、https 图片都可以。", "revOk": "认可：升级为永久卡", "revPend": "待审", "revOkd": "已认可", "tMd": "Markdown", "sprTitle": "飞行图示 🐝", "sprHint": "内置的两只蜜蜂可以直接替换：⇄ 换图、✕ 移除、＋ 新增（最多 4 张），也可以把图片拖到格子上。全部移除时，访客的 🐝 键会停用。", "sprRep": "换图", "sprDel": "移除", "sprAdd": "新增飞行图示", "sprReset": "恢复内置蜜蜂", "sprDef": "内置", "sprNone": "没有飞行图示：🐝 键将停用。", "sprBig": "图片超过 2 MB。", "foldMore": "⌄ 展开全文", "foldLess": "⌃ 收起"}, "ja": {"title": "ウォール編集", "upload": "アップロード", "download": "ダウンロード", "copyWall": "単体ウォールをコピー", "dlWall": "単体ウォールを保存", "clear": "クリア", "hint": "Enterで━━━━区切り｜区切り線はその上のブロックを指します：### は InfoMercial、=== は Topic、残りが Content｜Shift+Enterは改行のみ｜Ctrl+Enterで追加", "placeholder": "URLを1行に1つずつ貼り付け", "cancel": "キャンセル", "push": "✓ ウォールに追加", "count": "{n}件", "layout": "レイアウト", "random": "ランダム", "cols": "{n}列", "openEditor": "エディタを開く", "close": "閉じる", "edit": "編集", "language": "言語", "noInput": "URLや埋め込みコードが見つかりません", "skipped": "認識できない{n}行をスキップしました", "storageFull": "⚠️ 保存できません：ブラウザのストレージが満杯か無効です。先にバックアップをダウンロードしてください", "emptyWall": "ウォールが空です。先に内容を追加してください", "copied": "✓ 単体ウォールのHTMLをコピーしました（{n}件）", "clipFallback": "クリップボードが使えないため .html をダウンロードしました", "downloaded": "✓ 単体ウォールを保存しました（{n}件）", "fileEmpty": "このファイルに使える内容がありません", "loaded": "✓ {n}件を読み込みました", "loadedSkip": "（{n}件スキップ）", "confirmClear": "このウォールをクリアしますか？", "wallEmpty": "このウォールにはまだ内容がありません", "del": "削除", "original": "オリジナル", "shuffle": "シャッフル", "markTomb": "埋め込み不可にする", "tryEmbed": "もう一度埋め込む", "carousel": "カルーセル", "prev": "前へ", "next": "次へ", "page": "{n}ページ目", "filter": "フィルター", "searchPh": "タイトル・サイト・#タグを検索…", "fType": "種類", "fDate": "日付", "fSort": "並べ替え", "tAll": "すべての種類", "tVideo": "動画", "tAudio": "音声", "tPage": "ウェブページ", "tHtml": "HTML", "tBlocked": "埋め込み不可", "dAny": "すべての日付", "dToday": "今日", "d7": "過去7日間", "d30": "過去30日間", "sWall": "並び：ウォール順", "sNew": "新しい順", "sOld": "古い順", "sLong": "長い順", "sShort": "短い順", "sAz": "タイトル順", "results": "{n} / {m}件", "fClear": "クリア", "noMatch": "条件に合うカードがありません", "fTitle": "タイトル", "fTags": "タグ", "fLength": "長さ", "tagsPh": "カンマ区切り", "lenPh": "分:秒", "fxToggle": "エフェクト", "resetPos": "位置をリセット", "moveCard": "カードを移動", "fxFire": "花火", "fxFly": "飛行体", "fxSound": "サウンド", "tabSheet": "EzSheet", "tabPics": "画像と3D", "picDrop": "画像や3Dモデルをここにドロップ、またはクリックして選択", "picHint": "画像と3Dモデル（.glb .gltf .stl .obj）はウォールに直接埋め込まれ、外部からの読み込みはありません。どれもカードにでき、画像は Topic の飛行画像にもできます。", "asCard": "カードにする", "asSprite": "飛ぶ画像にする", "picAdd": "カードとして追加", "picSprites": "飛行画像に使う", "spriteReset": "既定のミツバチ", "picZoneA": "Topic へ", "picZoneB": "Content へ", "picAdded": "{n}枚の画像カードを追加しました", "spriteOk": "飛行画像 {n}件を適用しました", "picNone": "画像がありません", "zA": "Topic（トピック帯）", "zB": "Content（コンテンツ）", "zC": "InfoMercial（PR 帯）", "zorder": "区の並び", "zorderHint": "上の2帯（Topic／InfoMercial）の順番をドラッグで入れ替え", "picZoneC": "InfoMercial へ", "tModel": "3Dモデル", "picTooBig": "{n}件をスキップ：12 MB を超えています", "picBadType": "{n}件をスキップ：画像でも3Dモデルでもありません", "insCard": "このカードの前に1枚挿入", "insTitle": "カードを挿入", "insHintOwner": "URL・埋め込みコード・Markdown を貼り付けてください。このカードの前に入ります。", "insHintGuest": "URL・埋め込みコード・Markdown を貼り付けてください。このカードの前に入ります。このブラウザにだけ保存され、他の訪問者には見えません。", "insPh": "https://…　·　<iframe> 埋め込みコード　·　<md>…</md>　·　https://…/model.glb", "insSave": "保存して挿入", "insCancel": "キャンセル", "insBad": "URL でも、埋め込みコードでも、表示できる <md>…</md> ブロックでもありません。", "insDone": "✓ カードを1枚挿入しました", "insDel": "自分が追加したカードを削除", "revTitle": "Co-WiKi カード", "revDrop": "このカードを削除", "revHint": "訪問者のカードは Co-WiKi としてすぐ公開されます。✓ で承認して常設に、✕ で全員の画面から削除します。", "revNone": "訪問者のカードはまだありません", "revDenied": "オーナーキーが違います。", "revFail": "サーバーに接続できません。", "revTimeout": "サーバーの応答がありません。閉じてもう一度お試しください。", "revAsk": "オーナーキー", "syncOn": "接続中 — すべての訪問者と共有", "syncOff": "オフライン — 新しいカードは接続が戻るまでこのブラウザに残ります", "insHintLive": "URL・埋め込みコード・Markdown を貼り付けてください。このカードの前に Co-WiKi カードとして入り、すぐに全員に表示されます。オーナーが承認すると常設カードになります。", "insBusy": "サーバーがこのカードを受け付けませんでした。", "insRate": "ここからの投稿が多すぎます。しばらくしてからお試しください。", "insDown": "このウォールは現在オフラインのため、新しいカードをまだ共有できません。上のドットが緑になってからもう一度お試しください。", "insBig": "この Markdown カードは長すぎます。", "insMd": "M↓ Markdown", "insKinds": "3D：Sketchfab の埋め込み、または .glb／.stl／.obj の公開 https リンク", "insMdTpl": "# タイトル\n\nここに **Markdown** を書きます。リスト・表・リンク・https 画像が使えます。", "revOk": "承認して常設カードにする", "revPend": "承認待ち", "revOkd": "承認済み", "tMd": "Markdown", "sprTitle": "飛ぶ画像 🐝", "sprHint": "内蔵の 2 匹のハチはそのまま差し替えできます：⇄ で交換、✕ で削除、＋ で追加（最大 4 枚）。画像を枠にドロップしても交換できます。すべて削除すると訪問者の 🐝 ボタンは無効になります。", "sprRep": "画像を交換", "sprDel": "削除", "sprAdd": "飛ぶ画像を追加", "sprReset": "内蔵のハチに戻す", "sprDef": "内蔵", "sprNone": "飛ぶ画像がありません：🐝 ボタンは無効になります。", "sprBig": "画像が 2 MB を超えています。", "foldMore": "⌄ 全文を表示", "foldLess": "⌃ 折りたたむ"}, "ko": {"title": "월 편집", "upload": "업로드", "download": "다운로드", "copyWall": "독립 월 복사", "dlWall": "독립 월 저장", "clear": "비우기", "hint": "Enter로 ━━━━ 구분선｜경계선은 그 위 블록을 가리킵니다: ### 는 InfoMercial, === 는 Topic, 나머지는 Content｜Shift+Enter는 줄바꿈만｜Ctrl+Enter로 올리기", "placeholder": "URL을 한 줄에 하나씩 붙여넣기", "cancel": "취소", "push": "✓ 월에 올리기", "count": "{n}개", "layout": "레이아웃", "random": "랜덤", "cols": "{n}열", "openEditor": "편집기 열기", "close": "닫기", "edit": "편집", "language": "언어", "noInput": "URL이나 임베드 코드를 찾지 못했습니다", "skipped": "인식할 수 없는 {n}줄을 건너뛰었습니다", "storageFull": "⚠️ 저장 실패: 브라우저 저장 공간이 가득 찼거나 꺼져 있습니다. 먼저 백업을 다운로드하세요", "emptyWall": "월이 비어 있습니다. 먼저 콘텐츠를 올리세요", "copied": "✓ 독립 월 HTML을 복사했습니다({n}개)", "clipFallback": "클립보드를 쓸 수 없어 .html로 다운로드했습니다", "downloaded": "✓ 독립 월을 저장했습니다({n}개)", "fileEmpty": "이 파일에 사용할 수 있는 내용이 없습니다", "loaded": "✓ {n}개를 불러왔습니다", "loadedSkip": ", {n}개 건너뜀", "confirmClear": "이 월을 비울까요?", "wallEmpty": "이 월에는 아직 콘텐츠가 없습니다", "del": "삭제", "original": "원본", "shuffle": "셔플", "markTomb": "임베드 불가로 표시", "tryEmbed": "다시 임베드 시도", "carousel": "캐러셀", "prev": "이전", "next": "다음", "page": "{n}페이지", "filter": "필터", "searchPh": "제목, 사이트, #태그 검색…", "fType": "유형", "fDate": "날짜", "fSort": "정렬", "tAll": "모든 유형", "tVideo": "동영상", "tAudio": "오디오", "tPage": "웹페이지", "tHtml": "HTML", "tBlocked": "임베드 불가", "dAny": "모든 날짜", "dToday": "오늘", "d7": "최근 7일", "d30": "최근 30일", "sWall": "정렬: 월 순서", "sNew": "최신순", "sOld": "오래된순", "sLong": "긴 순", "sShort": "짧은 순", "sAz": "제목순", "results": "{n} / {m}", "fClear": "지우기", "noMatch": "조건에 맞는 카드가 없습니다", "fTitle": "제목", "fTags": "태그", "fLength": "길이", "tagsPh": "쉼표로 구분", "lenPh": "분:초", "fxToggle": "이펙트", "resetPos": "위치 초기화", "moveCard": "카드 이동", "fxFire": "불꽃", "fxFly": "비행체", "fxSound": "사운드", "tabSheet": "EzSheet", "tabPics": "이미지 · 3D", "picDrop": "이미지나 3D 모델을 끌어다 놓거나 클릭해서 선택", "picHint": "이미지와 3D 모델(.glb .gltf .stl .obj)은 월에 직접 포함되어 외부 요청이 없습니다. 각각 카드로 쓸 수 있고, 이미지는 Topic 영역의 나는 이미지로도 쓸 수 있습니다.", "asCard": "카드로", "asSprite": "나는 이미지로", "picAdd": "카드로 추가", "picSprites": "나는 이미지로 적용", "spriteReset": "기본 벌로", "picZoneA": "Topic", "picZoneB": "Content", "picAdded": "이미지 카드 {n}개를 추가했습니다", "spriteOk": "나는 이미지 {n}개를 적용했습니다", "picNone": "이미지가 없습니다", "zA": "Topic(주제 밴드)", "zB": "Content(콘텐츠 월)", "zC": "InfoMercial(광고 밴드)", "zorder": "영역 순서", "zorderHint": "위 두 밴드(Topic／InfoMercial) 순서를 끌어서 변경", "picZoneC": "InfoMercial", "tModel": "3D 모델", "picTooBig": "{n}개 건너뜀: 12 MB 초과", "picBadType": "{n}개 건너뜀: 이미지나 3D 모델이 아닙니다", "insCard": "이 카드 앞에 한 장 삽입", "insTitle": "카드 삽입", "insHintOwner": "URL, 임베드 코드 또는 Markdown을 붙여 넣으세요. 이 카드 앞에 들어갑니다.", "insHintGuest": "URL, 임베드 코드 또는 Markdown을 붙여 넣으세요. 이 카드 앞에 들어갑니다. 이 브라우저에만 저장되어 다른 방문자에게는 보이지 않습니다.", "insPh": "https://…  ·  <iframe> 임베드 코드  ·  <md>…</md>  ·  https://…/model.glb", "insSave": "저장하고 삽입", "insCancel": "취소", "insBad": "URL, 임베드 코드, 또는 표시할 수 있는 <md>…</md> 블록이 아닙니다.", "insDone": "✓ 카드 한 장을 삽입했습니다", "insDel": "내가 추가한 카드 삭제", "revTitle": "Co-WiKi 카드", "revDrop": "이 카드 삭제", "revHint": "방문자 카드는 Co-WiKi로 바로 공개됩니다. ✓ 로 승인하면 영구 카드가 되고, ✕ 로 모두의 화면에서 삭제합니다.", "revNone": "아직 방문자 카드가 없습니다", "revDenied": "소유자 키가 올바르지 않습니다.", "revFail": "서버에 연결할 수 없습니다.", "revTimeout": "서버 응답이 없습니다. 닫고 다시 시도하세요.", "revAsk": "소유자 키", "syncOn": "연결됨 — 모든 방문자와 공유", "syncOff": "오프라인 — 새 카드는 연결될 때까지 이 브라우저에 남습니다", "insHintLive": "URL, 임베드 코드 또는 Markdown을 붙여 넣으세요. 이 카드 앞에 Co-WiKi 카드로 들어가 모든 방문자에게 바로 보이며, 운영자가 승인하면 영구 카드가 됩니다.", "insBusy": "서버가 이 카드를 받지 않았습니다.", "insRate": "이곳에서 보낸 카드가 너무 많습니다. 잠시 후 다시 시도하세요.", "insDown": "이 월은 지금 오프라인이라 새 카드를 아직 공유할 수 없습니다. 위쪽 점이 초록색이 되면 다시 시도하세요.", "insBig": "이 Markdown 카드는 너무 깁니다.", "insMd": "M↓ Markdown", "insKinds": "3D: Sketchfab 임베드 또는 .glb / .stl / .obj 공개 https 링크", "insMdTpl": "# 제목\n\n여기에 **Markdown**을 쓰세요. 목록, 표, 링크, https 이미지를 쓸 수 있습니다.", "revOk": "승인하여 영구 카드로", "revPend": "승인 대기", "revOkd": "승인됨", "tMd": "Markdown", "sprTitle": "나는 이미지 🐝", "sprHint": "기본 벌 두 마리를 바로 바꿀 수 있습니다: ⇄ 교체, ✕ 삭제, ＋ 추가(최대 4장). 이미지를 칸에 끌어다 놓아도 됩니다. 모두 삭제하면 방문자의 🐝 버튼이 비활성화됩니다.", "sprRep": "이미지 교체", "sprDel": "삭제", "sprAdd": "나는 이미지 추가", "sprReset": "기본 벌로 되돌리기", "sprDef": "기본", "sprNone": "나는 이미지가 없습니다: 🐝 버튼이 비활성화됩니다.", "sprBig": "이미지가 2 MB를 넘습니다.", "foldMore": "⌄ 전체 보기", "foldLess": "⌃ 접기"}, "th": {"title": "แก้ไขวอลล์", "upload": "อัปโหลด", "download": "ดาวน์โหลด", "copyWall": "คัดลอกวอลล์แบบแยก", "dlWall": "ดาวน์โหลดวอลล์แบบแยก", "clear": "ล้าง", "hint": "Enter เพิ่มเส้นคั่น ━━━━ | เส้นแบ่งกำกับบล็อกเหนือมัน: ### คือ InfoMercial, === คือ Topic, ที่เหลือคือ Content | Shift+Enter ขึ้นบรรทัด | Ctrl+Enter ส่งขึ้นวอลล์", "placeholder": "วาง URL บรรทัดละหนึ่งรายการ", "cancel": "ยกเลิก", "push": "✓ ส่งขึ้นวอลล์", "count": "{n} รายการ", "layout": "เลย์เอาต์", "random": "สุ่ม", "cols": "{n} คอลัมน์", "openEditor": "เปิดตัวแก้ไข", "close": "ปิด", "edit": "แก้ไข", "language": "ภาษา", "noInput": "ไม่พบ URL หรือโค้ดฝัง", "skipped": "ข้ามบรรทัดที่อ่านไม่ออก {n} บรรทัด", "storageFull": "⚠️ บันทึกไม่ได้: พื้นที่เบราว์เซอร์เต็มหรือถูกปิดไว้ โปรดดาวน์โหลดสำรองก่อน", "emptyWall": "วอลล์ยังว่างอยู่ เพิ่มเนื้อหาก่อน", "copied": "✓ คัดลอก HTML วอลล์แบบแยกแล้ว ({n} รายการ)", "clipFallback": "ใช้คลิปบอร์ดไม่ได้ จึงดาวน์โหลดเป็น .html แทน", "downloaded": "✓ ดาวน์โหลดวอลล์แบบแยกแล้ว ({n} รายการ)", "fileEmpty": "ไม่มีเนื้อหาที่ใช้ได้ในไฟล์นี้", "loaded": "✓ โหลดแล้ว {n} รายการ", "loadedSkip": " ข้าม {n} รายการ", "confirmClear": "ล้างวอลล์นี้หรือไม่?", "wallEmpty": "วอลล์นี้ยังไม่มีเนื้อหา", "del": "ลบ", "original": "ต้นฉบับ", "shuffle": "สับไพ่", "markTomb": "ทำเครื่องหมายว่าฝังไม่ได้", "tryEmbed": "ลองฝังอีกครั้ง", "carousel": "ภาพหมุน", "prev": "ก่อนหน้า", "next": "ถัดไป", "page": "หน้า {n}", "filter": "ตัวกรอง", "searchPh": "ค้นหาชื่อ เว็บไซต์ #แท็ก…", "fType": "ประเภท", "fDate": "วันที่", "fSort": "เรียงลำดับ", "tAll": "ทุกประเภท", "tVideo": "วิดีโอ", "tAudio": "เสียง", "tPage": "หน้าเว็บ", "tHtml": "HTML", "tBlocked": "ฝังไม่ได้", "dAny": "ทุกวันที่", "dToday": "วันนี้", "d7": "7 วันล่าสุด", "d30": "30 วันล่าสุด", "sWall": "เรียง: ตามวอลล์", "sNew": "ใหม่สุดก่อน", "sOld": "เก่าสุดก่อน", "sLong": "ยาวสุดก่อน", "sShort": "สั้นสุดก่อน", "sAz": "เรียงตามชื่อ", "results": "{n} จาก {m}", "fClear": "ล้าง", "noMatch": "ไม่มีการ์ดที่ตรงกับตัวกรอง", "fTitle": "ชื่อ", "fTags": "แท็ก", "fLength": "ความยาว", "tagsPh": "คั่นด้วยจุลภาค", "lenPh": "นาที:วินาที", "fxToggle": "เอฟเฟกต์", "resetPos": "รีเซ็ตตำแหน่ง", "moveCard": "ย้ายการ์ด", "fxFire": "พลุ", "fxFly": "ตัวบิน", "fxSound": "เสียง", "tabSheet": "EzSheet", "tabPics": "รูปและ 3D", "picDrop": "วางรูปหรือโมเดล 3D ที่นี่ หรือคลิกเพื่อเลือกไฟล์", "picHint": "รูปและโมเดล 3D (.glb .gltf .stl .obj) จะฝังลงในวอลล์โดยตรง ไม่ดึงจากเครือข่าย แต่ละไฟล์ทำเป็นการ์ดได้ และรูปยังใช้แทนตัวบินในโซน Topic ได้", "asCard": "เป็นการ์ด", "asSprite": "เป็นตัวบิน", "picAdd": "เพิ่มเป็นการ์ด", "picSprites": "ใช้เป็นตัวบิน", "spriteReset": "กลับเป็นผึ้ง", "picZoneA": "Topic", "picZoneB": "Content", "picAdded": "เพิ่มการ์ดรูป {n} ใบแล้ว", "spriteOk": "ใช้ตัวบิน {n} รูปแล้ว", "picNone": "ยังไม่มีรูป", "zA": "Topic (แถบหัวข้อ)", "zB": "Content (ผนังเนื้อหา)", "zC": "InfoMercial (แถบโฆษณา)", "zorder": "ลำดับโซน", "zorderHint": "ลากเพื่อจัดลำดับสองแถบบน (Topic／InfoMercial)", "picZoneC": "InfoMercial", "tModel": "โมเดล 3D", "picTooBig": "ข้าม {n} ไฟล์: เกิน 12 MB", "picBadType": "ข้าม {n} ไฟล์: ไม่ใช่รูปหรือโมเดล 3D", "insCard": "แทรกการ์ดก่อนใบนี้", "insTitle": "แทรกการ์ด", "insHintOwner": "วาง URL โค้ดฝัง หรือ Markdown การ์ดจะแทรกก่อนการ์ดนี้", "insHintGuest": "วาง URL โค้ดฝัง หรือ Markdown การ์ดจะแทรกก่อนการ์ดนี้ และเก็บไว้ในเบราว์เซอร์นี้เท่านั้น ผู้เยี่ยมชมคนอื่นจะไม่เห็น", "insPh": "https://…  ·  โค้ดฝัง <iframe>  ·  <md>…</md>  ·  https://…/model.glb", "insSave": "บันทึกและแทรก", "insCancel": "ยกเลิก", "insBad": "นี่ไม่ใช่ URL โค้ดฝัง หรือบล็อก <md>…</md> ที่ผนังนี้แสดงได้", "insDone": "✓ แทรกการ์ดแล้ว 1 ใบ", "insDel": "ลบการ์ดที่คุณเพิ่ม", "revTitle": "การ์ด Co-WiKi", "revDrop": "ลบการ์ดนี้", "revHint": "การ์ดของผู้เยี่ยมชมเผยแพร่ทันทีในชื่อ Co-WiKi กด ✓ เพื่ออนุมัติเป็นการ์ดถาวร กด ✕ เพื่อลบออกจากทุกคน", "revNone": "ยังไม่มีการ์ดจากผู้เข้าชม", "revDenied": "คีย์เจ้าของไม่ถูกต้อง", "revFail": "เชื่อมต่อเซิร์ฟเวอร์ไม่ได้", "revTimeout": "เซิร์ฟเวอร์ไม่ตอบสนอง ปิดแล้วลองอีกครั้ง", "revAsk": "คีย์เจ้าของ", "syncOn": "เชื่อมต่ออยู่ — ผู้เข้าชมทุกคนเห็นตรงกัน", "syncOff": "ออฟไลน์ — การ์ดใหม่จะอยู่ในเบราว์เซอร์นี้จนกว่าจะเชื่อมต่อได้", "insHintLive": "วาง URL โค้ดฝัง หรือ Markdown การ์ดจะแทรกก่อนการ์ดนี้เป็นการ์ด Co-WiKi ทุกคนเห็นทันที และจะกลายเป็นการ์ดถาวรเมื่อเจ้าของอนุมัติ", "insBusy": "เซิร์ฟเวอร์ไม่รับการ์ดนี้", "insRate": "ส่งการ์ดจากที่นี่มากเกินไป กรุณาลองใหม่ภายหลัง", "insDown": "ขณะนี้วอลล์นี้ออฟไลน์ จึงยังแชร์การ์ดใหม่ไม่ได้ รอให้จุดด้านบนเป็นสีเขียวแล้วลองอีกครั้ง", "insBig": "การ์ด Markdown นี้ยาวเกินไป", "insMd": "M↓ Markdown", "insKinds": "3D: วางโค้ดฝัง Sketchfab หรือลิงก์ https สาธารณะของ .glb / .stl / .obj", "insMdTpl": "# หัวเรื่อง\n\nเขียน **Markdown** ที่นี่ ใช้รายการ ตาราง ลิงก์ และรูป https ได้", "revOk": "อนุมัติเป็นการ์ดถาวร", "revPend": "รออนุมัติ", "revOkd": "อนุมัติแล้ว", "tMd": "Markdown", "sprTitle": "ภาพที่บินได้ 🐝", "sprHint": "ผึ้งในตัวสองตัวเปลี่ยนได้ทันที: ⇄ เปลี่ยนภาพ ✕ ลบ ＋ เพิ่ม (สูงสุด 4 ภาพ) หรือลากภาพมาวางบนช่อง ถ้าลบหมด ปุ่ม 🐝 ของผู้เยี่ยมชมจะใช้ไม่ได้", "sprRep": "เปลี่ยนภาพ", "sprDel": "ลบ", "sprAdd": "เพิ่มภาพที่บินได้", "sprReset": "กลับเป็นผึ้งในตัว", "sprDef": "ในตัว", "sprNone": "ไม่มีภาพที่บินได้ ปุ่ม 🐝 จะใช้ไม่ได้", "sprBig": "ภาพใหญ่เกิน 2 MB", "foldMore": "⌄ ดูทั้งหมด", "foldLess": "⌃ ย่อ"}};
+const I18N={"en": {"title": "Wall editor", "upload": "Upload", "download": "Download", "copyWall": "Copy standalone wall", "dlWall": "Download standalone wall", "clear": "Clear", "hint": "Enter adds a ━━━━ divider | a boundary labels the block above it: ### = InfoMercial, === = Topic; whatever is left is Content | Shift+Enter: line break only | Ctrl+Enter: push to wall", "placeholder": "Paste URLs, one per line", "cancel": "Cancel", "push": "✓ Push to wall", "count": "{n} items", "layout": "Layout", "random": "Random", "cols": "{n} columns", "col1": "1 column", "openEditor": "Open editor", "close": "Close", "edit": "Edit", "language": "Language", "noInput": "No URLs or embed code found", "skipped": "Skipped {n} unrecognized line(s)", "storageFull": "⚠️ Not saved: browser storage is full or disabled. Download a backup first.", "emptyWall": "The wall is empty. Add content first.", "copied": "✓ Standalone wall HTML copied ({n} items)", "clipFallback": "Clipboard unavailable. Downloaded .html instead.", "downloaded": "✓ Standalone wall downloaded ({n} items)", "fileEmpty": "No usable content in this file", "loaded": "✓ Loaded {n} items", "loadedSkip": ", {n} skipped", "confirmClear": "Clear this wall?", "wallEmpty": "This wall has no content yet", "del": "Delete", "original": "Original", "shuffle": "Shuffle", "markTomb": "Mark as non-embeddable", "tryEmbed": "Try embedding again", "carousel": "Carousel", "prev": "Previous", "next": "Next", "page": "Page {n}", "filter": "Filter", "searchPh": "Search titles, sites, #tags…", "fType": "Type", "fDate": "Date", "fSort": "Sort", "tAll": "All types", "tVideo": "Video", "tAudio": "Audio", "tPage": "Web pages", "tHtml": "HTML", "tBlocked": "Non-embeddable", "dAny": "Any date", "dToday": "Today", "d7": "Last 7 days", "d30": "Last 30 days", "sWall": "Sort: wall order", "sNew": "Newest first", "sOld": "Oldest first", "sLong": "Longest first", "sShort": "Shortest first", "sAz": "Title A–Z", "results": "{n} of {m}", "fClear": "Clear", "noMatch": "No cards match these filters", "fTitle": "Title", "fTags": "Tags", "fLength": "Length", "tagsPh": "comma, separated", "lenPh": "mm:ss", "fxToggle": "Effects", "resetPos": "Reset positions", "moveCard": "Move card", "fxFly": "Flying bees", "fxSound": "Sound", "tabSheet": "EzSheet", "tabPics": "Images & 3D", "picDrop": "Drop images or 3D models here, or click to choose files", "picHint": "Images and 3D models (.glb .gltf .stl .obj) are inlined into the wall, so nothing is fetched from the network. Each one can become a card; images can also replace the flying sprites in Topic.", "asCard": "As card", "asSprite": "As flying sprite", "picAdd": "Add as cards", "picSprites": "Use as sprites", "spriteReset": "Default bees", "picZoneA": "Topic", "picZoneB": "Content", "picAdded": "{n} image card(s) added", "spriteOk": "{n} flying sprite(s) applied", "picNone": "No images yet", "zA": "Topic band", "zB": "Content wall", "zC": "InfoMercial band", "zorder": "Zone order", "zorderHint": "Drag to set the order of the two top bands", "picZoneC": "InfoMercial", "tModel": "3D models", "picTooBig": "{n} file(s) skipped: over 12 MB", "picBadType": "{n} file(s) skipped: not an image or 3D model", "insCard": "Insert a card before this one", "insTitle": "Insert a card", "insHintOwner": "Paste a URL, an embed code, or Markdown. It goes in right before this card.", "insHintGuest": "Paste a URL, an embed code, or Markdown. It goes in right before this card, and is kept only in this browser — other visitors will not see it.", "insPh": "https://…  ·  <iframe> embed code  ·  <md>…</md>  ·  https://…/model.glb", "insSave": "Save and insert", "insCancel": "Cancel", "insBad": "That is not a URL, an embed code, or a <md>…</md> block this wall can show.", "insDone": "✓ One card inserted", "insDel": "Remove the card you added", "revTitle": "Co-WiKi cards", "revDrop": "Remove this card", "revHint": "Visitor cards go live immediately as Co-WiKi. ✓ approves one and makes it permanent; ✕ removes it for everyone.", "revNone": "No visitor cards yet", "revDenied": "Only the wall owner can do this. Sign in as the owner (or check the owner key).", "revFail": "Could not reach the server.", "revTimeout": "The server did not answer in time. Close and try again.", "revAsk": "Owner key", "syncOn": "Live — shared with every visitor", "syncOff": "Offline — new cards stay in this browser until the connection is back", "insHintLive": "Paste a URL, an embed code, or Markdown. It goes in right before this card as a Co-WiKi card, every visitor sees it straight away, and it becomes permanent once the owner approves it.", "insBusy": "The server would not take that card.", "insRate": "Too many cards from here for now. Try again later.", "insDown": "This wall is offline at the moment, so a new card cannot be shared yet. Wait for the dot on the bar to turn green, then try again.", "insBig": "This Markdown card is too long.", "insMd": "M↓ Markdown", "insKinds": "3D: paste a Sketchfab embed or a public https link to .glb / .stl / .obj", "insMdTpl": "# Title\n\nWrite **Markdown** here — lists, tables, links and https images all work.", "revOk": "Approve — make this card permanent", "revPend": "Pending", "revOkd": "Approved", "tMd": "Markdown", "sprTitle": "Flying sprites 🐝", "sprHint": "The two built-in bees are ready to swap: ⇄ replaces one, ✕ removes it, ＋ adds one (up to 4), or drop an image on a slot. Remove them all and the 🐝 button is disabled for visitors.", "sprRep": "Replace image", "sprDel": "Remove", "sprAdd": "Add a flying sprite", "sprReset": "Back to the built-in bees", "sprDef": "built-in", "sprNone": "No flying sprites — the 🐝 button will be disabled.", "sprBig": "That image is over 2 MB.", "foldMore": "⌄ Show all", "foldLess": "⌃ Show less"}, "zh-TW": {"title": "牆面編輯", "upload": "上傳", "download": "下載", "copyWall": "複製獨立牆", "dlWall": "下載獨立牆", "clear": "清空", "hint": "Enter 自動加━━━━分隔｜界線標記「線以上那一段」：### 以上是 InfoMercial，=== 以上是 Topic，其餘是 Content｜Shift+Enter 純換行｜Ctrl+Enter 推上牆", "placeholder": "貼網址，每行一個", "cancel": "取消", "push": "✓ 推上牆", "count": "{n} 組", "layout": "版面", "random": "自由隨機", "cols": "{n} 欄", "openEditor": "開啟編輯面板", "close": "關閉", "edit": "編輯", "language": "語言", "noInput": "沒抓到可用的網址或嵌入碼", "skipped": "已略過 {n} 行無法辨識的內容", "storageFull": "⚠️ 沒存到：瀏覽器儲存空間已滿或被停用，請先下載備份", "emptyWall": "牆是空的，先推內容上牆", "copied": "✓ 已複製獨立牆 HTML（{n} 組）", "clipFallback": "剪貼簿無法使用，已改為下載 .html", "downloaded": "✓ 已下載獨立牆（{n} 組）", "fileEmpty": "檔案裡沒有可用的內容", "loaded": "✓ 已載入 {n} 組", "loadedSkip": "，略過 {n} 組", "confirmClear": "清空這面牆？", "wallEmpty": "這面牆目前沒有內容", "del": "刪除", "original": "原始版面", "shuffle": "洗牌", "markTomb": "標示為無法嵌入", "tryEmbed": "重新嘗試嵌入", "carousel": "輪播", "prev": "上一頁", "next": "下一頁", "page": "第 {n} 頁", "filter": "篩選", "searchPh": "搜尋標題、網站、#標籤…", "fType": "類型", "fDate": "日期", "fSort": "排序", "tAll": "所有類型", "tVideo": "影片", "tAudio": "音訊", "tPage": "網頁", "tHtml": "HTML", "tBlocked": "無法嵌入", "dAny": "不限日期", "dToday": "今天", "d7": "最近 7 天", "d30": "最近 30 天", "sWall": "排序：牆面順序", "sNew": "最新優先", "sOld": "最舊優先", "sLong": "最長優先", "sShort": "最短優先", "sAz": "標題 A–Z", "results": "{n} / {m}", "fClear": "清除", "noMatch": "沒有符合篩選條件的卡片", "fTitle": "標題", "fTags": "標籤", "fLength": "長度", "tagsPh": "以逗號分隔", "lenPh": "分:秒", "fxToggle": "特效", "resetPos": "一鍵復位", "moveCard": "拖曳搬移", "fxFly": "飛行物", "fxSound": "音效", "tabSheet": "EzSheet", "tabPics": "圖檔與 3D", "picDrop": "把圖檔或 3D 模型拖到這裡，或點一下選擇檔案", "picHint": "圖片與 3D 模型（.glb .gltf .stl .obj）會直接內嵌進牆面，不依賴外部網址。每個都可以變成一張卡片；圖片還可以取代 Topic 區的飛行圖示。", "asCard": "當卡片", "asSprite": "當飛行圖示", "picAdd": "加入為卡片", "picSprites": "套用為飛行圖示", "spriteReset": "回到預設蜜蜂", "picZoneA": "放 Topic", "picZoneB": "放 Content", "picAdded": "已加入 {n} 張圖卡", "spriteOk": "已套用 {n} 個飛行圖示", "picNone": "還沒有圖檔", "zA": "Topic（主題帶）", "zB": "Content（內容牆）", "zC": "InfoMercial（業配帶）", "zorder": "區塊順序", "zorderHint": "拖曳調整上方兩條帶（Topic／InfoMercial）的順序", "picZoneC": "放 InfoMercial", "tModel": "3D 模型", "picTooBig": "已略過 {n} 個檔案：超過 12 MB", "picBadType": "已略過 {n} 個檔案：不是圖檔或 3D 模型", "insCard": "在這張卡前面插入一張", "insTitle": "插入新卡", "insHintOwner": "貼上網址、嵌入碼或 Markdown，會插在這張卡的前面。", "insHintGuest": "貼上網址、嵌入碼或 Markdown，會插在這張卡的前面。只存在你這台瀏覽器裡，其他訪客看不到。", "insPh": "https://…　·　<iframe> 嵌入碼　·　<md>…</md>　·　https://…/model.glb", "insSave": "儲存並插入", "insCancel": "取消", "insBad": "這段內容不是網址、嵌入碼，也不是這面牆能呈現的 <md>…</md> 區塊。", "insDone": "✓ 已插入一張卡", "insDel": "移除你加的這張卡", "revTitle": "Co-WiKi 來客卡", "revDrop": "移除這張卡", "revHint": "來客卡以 Co-WiKi 即時公開。按 ✓ 認可成為永久卡；按 ✕ 移除，所有人那邊會立刻消失。", "revNone": "目前沒有訪客卡片", "revDenied": "只有版主可以操作。請以版主帳號登入（或檢查版主金鑰）。", "revFail": "連不上伺服器。", "revTimeout": "伺服器沒有及時回應，請關閉後再試一次。", "revAsk": "版主金鑰", "syncOn": "連線中——所有訪客同步看到", "syncOff": "離線——新卡先留在這台瀏覽器，連上後再送出", "insHintLive": "貼上網址、嵌入碼或 Markdown，會以 Co-WiKi 卡插在這張卡的前面，所有訪客立刻看得到；版主認可後成為永久卡。", "insBusy": "伺服器不接受這張卡。", "insRate": "這裡送出的卡太多了，請稍後再試。", "insDown": "這面牆目前連不上伺服器，新卡還送不出去。等上方那顆點變綠再試一次。", "insBig": "這張 Markdown 卡太長了。", "insMd": "M↓ Markdown", "insKinds": "3D：貼 Sketchfab 嵌入碼，或 .glb／.stl／.obj 的公開 https 網址", "insMdTpl": "# 標題\n\n在這裡寫 **Markdown**：清單、表格、連結、https 圖片都可以。", "revOk": "認可：升級為永久卡", "revPend": "待審", "revOkd": "已認可", "tMd": "Markdown", "sprTitle": "飛行圖示 🐝", "sprHint": "內建的兩隻蜜蜂可以直接替換：⇄ 換圖、✕ 移除、＋ 新增（最多 4 張），也可以把圖檔拖到格子上。全部移除時，訪客的 🐝 鍵會停用。", "sprRep": "換圖", "sprDel": "移除", "sprAdd": "新增飛行圖示", "sprReset": "恢復內建蜜蜂", "sprDef": "內建", "sprNone": "沒有飛行圖示：🐝 鍵將停用。", "sprBig": "圖檔超過 2 MB。", "foldMore": "⌄ 展開全文", "foldLess": "⌃ 收合"}, "zh-CN": {"title": "墙面编辑", "upload": "上传", "download": "下载", "copyWall": "复制独立墙", "dlWall": "下载独立墙", "clear": "清空", "hint": "Enter 自动加━━━━分隔｜界线标记“线以上那一段”：### 以上是 InfoMercial，=== 以上是 Topic，其余是 Content｜Shift+Enter 纯换行｜Ctrl+Enter 推上墙", "placeholder": "粘贴网址，每行一个", "cancel": "取消", "push": "✓ 推上墙", "count": "{n} 组", "layout": "版面", "random": "自由随机", "cols": "{n} 栏", "openEditor": "打开编辑面板", "close": "关闭", "edit": "编辑", "language": "语言", "noInput": "没抓到可用的网址或嵌入码", "skipped": "已跳过 {n} 行无法识别的内容", "storageFull": "⚠️ 没保存：浏览器存储空间已满或被禁用，请先下载备份", "emptyWall": "墙是空的，先推内容上墙", "copied": "✓ 已复制独立墙 HTML（{n} 组）", "clipFallback": "剪贴板无法使用，已改为下载 .html", "downloaded": "✓ 已下载独立墙（{n} 组）", "fileEmpty": "文件里没有可用的内容", "loaded": "✓ 已载入 {n} 组", "loadedSkip": "，跳过 {n} 组", "confirmClear": "清空这面墙？", "wallEmpty": "这面墙目前没有内容", "del": "删除", "original": "原始版面", "shuffle": "洗牌", "markTomb": "标记为无法嵌入", "tryEmbed": "重新尝试嵌入", "carousel": "轮播", "prev": "上一页", "next": "下一页", "page": "第 {n} 页", "filter": "筛选", "searchPh": "搜索标题、网站、#标签…", "fType": "类型", "fDate": "日期", "fSort": "排序", "tAll": "所有类型", "tVideo": "视频", "tAudio": "音频", "tPage": "网页", "tHtml": "HTML", "tBlocked": "无法嵌入", "dAny": "不限日期", "dToday": "今天", "d7": "最近 7 天", "d30": "最近 30 天", "sWall": "排序：墙面顺序", "sNew": "最新优先", "sOld": "最旧优先", "sLong": "最长优先", "sShort": "最短优先", "sAz": "标题 A–Z", "results": "{n} / {m}", "fClear": "清除", "noMatch": "没有符合筛选条件的卡片", "fTitle": "标题", "fTags": "标签", "fLength": "长度", "tagsPh": "用逗号分隔", "lenPh": "分:秒", "fxToggle": "特效", "resetPos": "一键复位", "moveCard": "拖曳搬移", "fxFly": "飞行物", "fxSound": "音效", "tabSheet": "EzSheet", "tabPics": "图档与 3D", "picDrop": "把图档或 3D 模型拖到这里，或点一下选择文件", "picHint": "图片与 3D 模型（.glb .gltf .stl .obj）会直接内嵌进墙面，不依赖外部网址。每个都可以变成一张卡片；图片还可以取代 Topic 区的飞行图示。", "asCard": "当卡片", "asSprite": "当飞行图示", "picAdd": "加入为卡片", "picSprites": "套用为飞行图示", "spriteReset": "回到默认蜜蜂", "picZoneA": "放 Topic", "picZoneB": "放 Content", "picAdded": "已加入 {n} 张图卡", "spriteOk": "已套用 {n} 个飞行图示", "picNone": "还没有图档", "zA": "Topic（主题带）", "zB": "Content（内容墙）", "zC": "InfoMercial（推广带）", "zorder": "区块顺序", "zorderHint": "拖拽调整上方两条带（Topic／InfoMercial）的顺序", "picZoneC": "放 InfoMercial", "tModel": "3D 模型", "picTooBig": "已跳过 {n} 个文件：超过 12 MB", "picBadType": "已跳过 {n} 个文件：不是图档或 3D 模型", "insCard": "在这张卡前面插入一张", "insTitle": "插入新卡", "insHintOwner": "粘贴网址、嵌入码或 Markdown，会插在这张卡的前面。", "insHintGuest": "粘贴网址、嵌入码或 Markdown，会插在这张卡的前面。只存在你这台浏览器里，其他访客看不到。", "insPh": "https://…　·　<iframe> 嵌入码　·　<md>…</md>　·　https://…/model.glb", "insSave": "保存并插入", "insCancel": "取消", "insBad": "这段内容不是网址、嵌入码，也不是这面墙能呈现的 <md>…</md> 区块。", "insDone": "✓ 已插入一张卡", "insDel": "移除你加的这张卡", "revTitle": "Co-WiKi 来客卡", "revDrop": "移除这张卡", "revHint": "来客卡以 Co-WiKi 即时公开。按 ✓ 认可成为永久卡；按 ✕ 移除，所有人那边会立刻消失。", "revNone": "目前没有访客卡片", "revDenied": "只有版主可以操作。请以版主账号登录（或检查版主密钥）。", "revFail": "连不上服务器。", "revTimeout": "服务器没有及时响应，请关闭后再试一次。", "revAsk": "版主密钥", "syncOn": "连线中——所有访客同步看到", "syncOff": "离线——新卡先留在这台浏览器，连上后再送出", "insHintLive": "粘贴网址、嵌入码或 Markdown，会以 Co-WiKi 卡插在这张卡的前面，所有访客立刻看得到；版主认可后成为永久卡。", "insBusy": "服务器不接受这张卡。", "insRate": "这里送出的卡太多了，请稍后再试。", "insDown": "这面墙目前连不上服务器，新卡还送不出去。等上方那颗点变绿再试一次。", "insBig": "这张 Markdown 卡太长了。", "insMd": "M↓ Markdown", "insKinds": "3D：粘贴 Sketchfab 嵌入码，或 .glb／.stl／.obj 的公开 https 网址", "insMdTpl": "# 标题\n\n在这里写 **Markdown**：列表、表格、链接、https 图片都可以。", "revOk": "认可：升级为永久卡", "revPend": "待审", "revOkd": "已认可", "tMd": "Markdown", "sprTitle": "飞行图示 🐝", "sprHint": "内置的两只蜜蜂可以直接替换：⇄ 换图、✕ 移除、＋ 新增（最多 4 张），也可以把图片拖到格子上。全部移除时，访客的 🐝 键会停用。", "sprRep": "换图", "sprDel": "移除", "sprAdd": "新增飞行图示", "sprReset": "恢复内置蜜蜂", "sprDef": "内置", "sprNone": "没有飞行图示：🐝 键将停用。", "sprBig": "图片超过 2 MB。", "foldMore": "⌄ 展开全文", "foldLess": "⌃ 收起"}, "ja": {"title": "ウォール編集", "upload": "アップロード", "download": "ダウンロード", "copyWall": "単体ウォールをコピー", "dlWall": "単体ウォールを保存", "clear": "クリア", "hint": "Enterで━━━━区切り｜区切り線はその上のブロックを指します：### は InfoMercial、=== は Topic、残りが Content｜Shift+Enterは改行のみ｜Ctrl+Enterで追加", "placeholder": "URLを1行に1つずつ貼り付け", "cancel": "キャンセル", "push": "✓ ウォールに追加", "count": "{n}件", "layout": "レイアウト", "random": "ランダム", "cols": "{n}列", "openEditor": "エディタを開く", "close": "閉じる", "edit": "編集", "language": "言語", "noInput": "URLや埋め込みコードが見つかりません", "skipped": "認識できない{n}行をスキップしました", "storageFull": "⚠️ 保存できません：ブラウザのストレージが満杯か無効です。先にバックアップをダウンロードしてください", "emptyWall": "ウォールが空です。先に内容を追加してください", "copied": "✓ 単体ウォールのHTMLをコピーしました（{n}件）", "clipFallback": "クリップボードが使えないため .html をダウンロードしました", "downloaded": "✓ 単体ウォールを保存しました（{n}件）", "fileEmpty": "このファイルに使える内容がありません", "loaded": "✓ {n}件を読み込みました", "loadedSkip": "（{n}件スキップ）", "confirmClear": "このウォールをクリアしますか？", "wallEmpty": "このウォールにはまだ内容がありません", "del": "削除", "original": "オリジナル", "shuffle": "シャッフル", "markTomb": "埋め込み不可にする", "tryEmbed": "もう一度埋め込む", "carousel": "カルーセル", "prev": "前へ", "next": "次へ", "page": "{n}ページ目", "filter": "フィルター", "searchPh": "タイトル・サイト・#タグを検索…", "fType": "種類", "fDate": "日付", "fSort": "並べ替え", "tAll": "すべての種類", "tVideo": "動画", "tAudio": "音声", "tPage": "ウェブページ", "tHtml": "HTML", "tBlocked": "埋め込み不可", "dAny": "すべての日付", "dToday": "今日", "d7": "過去7日間", "d30": "過去30日間", "sWall": "並び：ウォール順", "sNew": "新しい順", "sOld": "古い順", "sLong": "長い順", "sShort": "短い順", "sAz": "タイトル順", "results": "{n} / {m}件", "fClear": "クリア", "noMatch": "条件に合うカードがありません", "fTitle": "タイトル", "fTags": "タグ", "fLength": "長さ", "tagsPh": "カンマ区切り", "lenPh": "分:秒", "fxToggle": "エフェクト", "resetPos": "位置をリセット", "moveCard": "カードを移動", "fxFly": "飛行体", "fxSound": "サウンド", "tabSheet": "EzSheet", "tabPics": "画像と3D", "picDrop": "画像や3Dモデルをここにドロップ、またはクリックして選択", "picHint": "画像と3Dモデル（.glb .gltf .stl .obj）はウォールに直接埋め込まれ、外部からの読み込みはありません。どれもカードにでき、画像は Topic の飛行画像にもできます。", "asCard": "カードにする", "asSprite": "飛ぶ画像にする", "picAdd": "カードとして追加", "picSprites": "飛行画像に使う", "spriteReset": "既定のミツバチ", "picZoneA": "Topic へ", "picZoneB": "Content へ", "picAdded": "{n}枚の画像カードを追加しました", "spriteOk": "飛行画像 {n}件を適用しました", "picNone": "画像がありません", "zA": "Topic（トピック帯）", "zB": "Content（コンテンツ）", "zC": "InfoMercial（PR 帯）", "zorder": "区の並び", "zorderHint": "上の2帯（Topic／InfoMercial）の順番をドラッグで入れ替え", "picZoneC": "InfoMercial へ", "tModel": "3Dモデル", "picTooBig": "{n}件をスキップ：12 MB を超えています", "picBadType": "{n}件をスキップ：画像でも3Dモデルでもありません", "insCard": "このカードの前に1枚挿入", "insTitle": "カードを挿入", "insHintOwner": "URL・埋め込みコード・Markdown を貼り付けてください。このカードの前に入ります。", "insHintGuest": "URL・埋め込みコード・Markdown を貼り付けてください。このカードの前に入ります。このブラウザにだけ保存され、他の訪問者には見えません。", "insPh": "https://…　·　<iframe> 埋め込みコード　·　<md>…</md>　·　https://…/model.glb", "insSave": "保存して挿入", "insCancel": "キャンセル", "insBad": "URL でも、埋め込みコードでも、表示できる <md>…</md> ブロックでもありません。", "insDone": "✓ カードを1枚挿入しました", "insDel": "自分が追加したカードを削除", "revTitle": "Co-WiKi カード", "revDrop": "このカードを削除", "revHint": "訪問者のカードは Co-WiKi としてすぐ公開されます。✓ で承認して常設に、✕ で全員の画面から削除します。", "revNone": "訪問者のカードはまだありません", "revDenied": "オーナーキーが違います。", "revFail": "サーバーに接続できません。", "revTimeout": "サーバーの応答がありません。閉じてもう一度お試しください。", "revAsk": "オーナーキー", "syncOn": "接続中 — すべての訪問者と共有", "syncOff": "オフライン — 新しいカードは接続が戻るまでこのブラウザに残ります", "insHintLive": "URL・埋め込みコード・Markdown を貼り付けてください。このカードの前に Co-WiKi カードとして入り、すぐに全員に表示されます。オーナーが承認すると常設カードになります。", "insBusy": "サーバーがこのカードを受け付けませんでした。", "insRate": "ここからの投稿が多すぎます。しばらくしてからお試しください。", "insDown": "このウォールは現在オフラインのため、新しいカードをまだ共有できません。上のドットが緑になってからもう一度お試しください。", "insBig": "この Markdown カードは長すぎます。", "insMd": "M↓ Markdown", "insKinds": "3D：Sketchfab の埋め込み、または .glb／.stl／.obj の公開 https リンク", "insMdTpl": "# タイトル\n\nここに **Markdown** を書きます。リスト・表・リンク・https 画像が使えます。", "revOk": "承認して常設カードにする", "revPend": "承認待ち", "revOkd": "承認済み", "tMd": "Markdown", "sprTitle": "飛ぶ画像 🐝", "sprHint": "内蔵の 2 匹のハチはそのまま差し替えできます：⇄ で交換、✕ で削除、＋ で追加（最大 4 枚）。画像を枠にドロップしても交換できます。すべて削除すると訪問者の 🐝 ボタンは無効になります。", "sprRep": "画像を交換", "sprDel": "削除", "sprAdd": "飛ぶ画像を追加", "sprReset": "内蔵のハチに戻す", "sprDef": "内蔵", "sprNone": "飛ぶ画像がありません：🐝 ボタンは無効になります。", "sprBig": "画像が 2 MB を超えています。", "foldMore": "⌄ 全文を表示", "foldLess": "⌃ 折りたたむ"}, "ko": {"title": "월 편집", "upload": "업로드", "download": "다운로드", "copyWall": "독립 월 복사", "dlWall": "독립 월 저장", "clear": "비우기", "hint": "Enter로 ━━━━ 구분선｜경계선은 그 위 블록을 가리킵니다: ### 는 InfoMercial, === 는 Topic, 나머지는 Content｜Shift+Enter는 줄바꿈만｜Ctrl+Enter로 올리기", "placeholder": "URL을 한 줄에 하나씩 붙여넣기", "cancel": "취소", "push": "✓ 월에 올리기", "count": "{n}개", "layout": "레이아웃", "random": "랜덤", "cols": "{n}열", "openEditor": "편집기 열기", "close": "닫기", "edit": "편집", "language": "언어", "noInput": "URL이나 임베드 코드를 찾지 못했습니다", "skipped": "인식할 수 없는 {n}줄을 건너뛰었습니다", "storageFull": "⚠️ 저장 실패: 브라우저 저장 공간이 가득 찼거나 꺼져 있습니다. 먼저 백업을 다운로드하세요", "emptyWall": "월이 비어 있습니다. 먼저 콘텐츠를 올리세요", "copied": "✓ 독립 월 HTML을 복사했습니다({n}개)", "clipFallback": "클립보드를 쓸 수 없어 .html로 다운로드했습니다", "downloaded": "✓ 독립 월을 저장했습니다({n}개)", "fileEmpty": "이 파일에 사용할 수 있는 내용이 없습니다", "loaded": "✓ {n}개를 불러왔습니다", "loadedSkip": ", {n}개 건너뜀", "confirmClear": "이 월을 비울까요?", "wallEmpty": "이 월에는 아직 콘텐츠가 없습니다", "del": "삭제", "original": "원본", "shuffle": "셔플", "markTomb": "임베드 불가로 표시", "tryEmbed": "다시 임베드 시도", "carousel": "캐러셀", "prev": "이전", "next": "다음", "page": "{n}페이지", "filter": "필터", "searchPh": "제목, 사이트, #태그 검색…", "fType": "유형", "fDate": "날짜", "fSort": "정렬", "tAll": "모든 유형", "tVideo": "동영상", "tAudio": "오디오", "tPage": "웹페이지", "tHtml": "HTML", "tBlocked": "임베드 불가", "dAny": "모든 날짜", "dToday": "오늘", "d7": "최근 7일", "d30": "최근 30일", "sWall": "정렬: 월 순서", "sNew": "최신순", "sOld": "오래된순", "sLong": "긴 순", "sShort": "짧은 순", "sAz": "제목순", "results": "{n} / {m}", "fClear": "지우기", "noMatch": "조건에 맞는 카드가 없습니다", "fTitle": "제목", "fTags": "태그", "fLength": "길이", "tagsPh": "쉼표로 구분", "lenPh": "분:초", "fxToggle": "이펙트", "resetPos": "위치 초기화", "moveCard": "카드 이동", "fxFly": "비행체", "fxSound": "사운드", "tabSheet": "EzSheet", "tabPics": "이미지 · 3D", "picDrop": "이미지나 3D 모델을 끌어다 놓거나 클릭해서 선택", "picHint": "이미지와 3D 모델(.glb .gltf .stl .obj)은 월에 직접 포함되어 외부 요청이 없습니다. 각각 카드로 쓸 수 있고, 이미지는 Topic 영역의 나는 이미지로도 쓸 수 있습니다.", "asCard": "카드로", "asSprite": "나는 이미지로", "picAdd": "카드로 추가", "picSprites": "나는 이미지로 적용", "spriteReset": "기본 벌로", "picZoneA": "Topic", "picZoneB": "Content", "picAdded": "이미지 카드 {n}개를 추가했습니다", "spriteOk": "나는 이미지 {n}개를 적용했습니다", "picNone": "이미지가 없습니다", "zA": "Topic(주제 밴드)", "zB": "Content(콘텐츠 월)", "zC": "InfoMercial(광고 밴드)", "zorder": "영역 순서", "zorderHint": "위 두 밴드(Topic／InfoMercial) 순서를 끌어서 변경", "picZoneC": "InfoMercial", "tModel": "3D 모델", "picTooBig": "{n}개 건너뜀: 12 MB 초과", "picBadType": "{n}개 건너뜀: 이미지나 3D 모델이 아닙니다", "insCard": "이 카드 앞에 한 장 삽입", "insTitle": "카드 삽입", "insHintOwner": "URL, 임베드 코드 또는 Markdown을 붙여 넣으세요. 이 카드 앞에 들어갑니다.", "insHintGuest": "URL, 임베드 코드 또는 Markdown을 붙여 넣으세요. 이 카드 앞에 들어갑니다. 이 브라우저에만 저장되어 다른 방문자에게는 보이지 않습니다.", "insPh": "https://…  ·  <iframe> 임베드 코드  ·  <md>…</md>  ·  https://…/model.glb", "insSave": "저장하고 삽입", "insCancel": "취소", "insBad": "URL, 임베드 코드, 또는 표시할 수 있는 <md>…</md> 블록이 아닙니다.", "insDone": "✓ 카드 한 장을 삽입했습니다", "insDel": "내가 추가한 카드 삭제", "revTitle": "Co-WiKi 카드", "revDrop": "이 카드 삭제", "revHint": "방문자 카드는 Co-WiKi로 바로 공개됩니다. ✓ 로 승인하면 영구 카드가 되고, ✕ 로 모두의 화면에서 삭제합니다.", "revNone": "아직 방문자 카드가 없습니다", "revDenied": "소유자 키가 올바르지 않습니다.", "revFail": "서버에 연결할 수 없습니다.", "revTimeout": "서버 응답이 없습니다. 닫고 다시 시도하세요.", "revAsk": "소유자 키", "syncOn": "연결됨 — 모든 방문자와 공유", "syncOff": "오프라인 — 새 카드는 연결될 때까지 이 브라우저에 남습니다", "insHintLive": "URL, 임베드 코드 또는 Markdown을 붙여 넣으세요. 이 카드 앞에 Co-WiKi 카드로 들어가 모든 방문자에게 바로 보이며, 운영자가 승인하면 영구 카드가 됩니다.", "insBusy": "서버가 이 카드를 받지 않았습니다.", "insRate": "이곳에서 보낸 카드가 너무 많습니다. 잠시 후 다시 시도하세요.", "insDown": "이 월은 지금 오프라인이라 새 카드를 아직 공유할 수 없습니다. 위쪽 점이 초록색이 되면 다시 시도하세요.", "insBig": "이 Markdown 카드는 너무 깁니다.", "insMd": "M↓ Markdown", "insKinds": "3D: Sketchfab 임베드 또는 .glb / .stl / .obj 공개 https 링크", "insMdTpl": "# 제목\n\n여기에 **Markdown**을 쓰세요. 목록, 표, 링크, https 이미지를 쓸 수 있습니다.", "revOk": "승인하여 영구 카드로", "revPend": "승인 대기", "revOkd": "승인됨", "tMd": "Markdown", "sprTitle": "나는 이미지 🐝", "sprHint": "기본 벌 두 마리를 바로 바꿀 수 있습니다: ⇄ 교체, ✕ 삭제, ＋ 추가(최대 4장). 이미지를 칸에 끌어다 놓아도 됩니다. 모두 삭제하면 방문자의 🐝 버튼이 비활성화됩니다.", "sprRep": "이미지 교체", "sprDel": "삭제", "sprAdd": "나는 이미지 추가", "sprReset": "기본 벌로 되돌리기", "sprDef": "기본", "sprNone": "나는 이미지가 없습니다: 🐝 버튼이 비활성화됩니다.", "sprBig": "이미지가 2 MB를 넘습니다.", "foldMore": "⌄ 전체 보기", "foldLess": "⌃ 접기"}, "th": {"title": "แก้ไขวอลล์", "upload": "อัปโหลด", "download": "ดาวน์โหลด", "copyWall": "คัดลอกวอลล์แบบแยก", "dlWall": "ดาวน์โหลดวอลล์แบบแยก", "clear": "ล้าง", "hint": "Enter เพิ่มเส้นคั่น ━━━━ | เส้นแบ่งกำกับบล็อกเหนือมัน: ### คือ InfoMercial, === คือ Topic, ที่เหลือคือ Content | Shift+Enter ขึ้นบรรทัด | Ctrl+Enter ส่งขึ้นวอลล์", "placeholder": "วาง URL บรรทัดละหนึ่งรายการ", "cancel": "ยกเลิก", "push": "✓ ส่งขึ้นวอลล์", "count": "{n} รายการ", "layout": "เลย์เอาต์", "random": "สุ่ม", "cols": "{n} คอลัมน์", "openEditor": "เปิดตัวแก้ไข", "close": "ปิด", "edit": "แก้ไข", "language": "ภาษา", "noInput": "ไม่พบ URL หรือโค้ดฝัง", "skipped": "ข้ามบรรทัดที่อ่านไม่ออก {n} บรรทัด", "storageFull": "⚠️ บันทึกไม่ได้: พื้นที่เบราว์เซอร์เต็มหรือถูกปิดไว้ โปรดดาวน์โหลดสำรองก่อน", "emptyWall": "วอลล์ยังว่างอยู่ เพิ่มเนื้อหาก่อน", "copied": "✓ คัดลอก HTML วอลล์แบบแยกแล้ว ({n} รายการ)", "clipFallback": "ใช้คลิปบอร์ดไม่ได้ จึงดาวน์โหลดเป็น .html แทน", "downloaded": "✓ ดาวน์โหลดวอลล์แบบแยกแล้ว ({n} รายการ)", "fileEmpty": "ไม่มีเนื้อหาที่ใช้ได้ในไฟล์นี้", "loaded": "✓ โหลดแล้ว {n} รายการ", "loadedSkip": " ข้าม {n} รายการ", "confirmClear": "ล้างวอลล์นี้หรือไม่?", "wallEmpty": "วอลล์นี้ยังไม่มีเนื้อหา", "del": "ลบ", "original": "ต้นฉบับ", "shuffle": "สับไพ่", "markTomb": "ทำเครื่องหมายว่าฝังไม่ได้", "tryEmbed": "ลองฝังอีกครั้ง", "carousel": "ภาพหมุน", "prev": "ก่อนหน้า", "next": "ถัดไป", "page": "หน้า {n}", "filter": "ตัวกรอง", "searchPh": "ค้นหาชื่อ เว็บไซต์ #แท็ก…", "fType": "ประเภท", "fDate": "วันที่", "fSort": "เรียงลำดับ", "tAll": "ทุกประเภท", "tVideo": "วิดีโอ", "tAudio": "เสียง", "tPage": "หน้าเว็บ", "tHtml": "HTML", "tBlocked": "ฝังไม่ได้", "dAny": "ทุกวันที่", "dToday": "วันนี้", "d7": "7 วันล่าสุด", "d30": "30 วันล่าสุด", "sWall": "เรียง: ตามวอลล์", "sNew": "ใหม่สุดก่อน", "sOld": "เก่าสุดก่อน", "sLong": "ยาวสุดก่อน", "sShort": "สั้นสุดก่อน", "sAz": "เรียงตามชื่อ", "results": "{n} จาก {m}", "fClear": "ล้าง", "noMatch": "ไม่มีการ์ดที่ตรงกับตัวกรอง", "fTitle": "ชื่อ", "fTags": "แท็ก", "fLength": "ความยาว", "tagsPh": "คั่นด้วยจุลภาค", "lenPh": "นาที:วินาที", "fxToggle": "เอฟเฟกต์", "resetPos": "รีเซ็ตตำแหน่ง", "moveCard": "ย้ายการ์ด", "fxFly": "ตัวบิน", "fxSound": "เสียง", "tabSheet": "EzSheet", "tabPics": "รูปและ 3D", "picDrop": "วางรูปหรือโมเดล 3D ที่นี่ หรือคลิกเพื่อเลือกไฟล์", "picHint": "รูปและโมเดล 3D (.glb .gltf .stl .obj) จะฝังลงในวอลล์โดยตรง ไม่ดึงจากเครือข่าย แต่ละไฟล์ทำเป็นการ์ดได้ และรูปยังใช้แทนตัวบินในโซน Topic ได้", "asCard": "เป็นการ์ด", "asSprite": "เป็นตัวบิน", "picAdd": "เพิ่มเป็นการ์ด", "picSprites": "ใช้เป็นตัวบิน", "spriteReset": "กลับเป็นผึ้ง", "picZoneA": "Topic", "picZoneB": "Content", "picAdded": "เพิ่มการ์ดรูป {n} ใบแล้ว", "spriteOk": "ใช้ตัวบิน {n} รูปแล้ว", "picNone": "ยังไม่มีรูป", "zA": "Topic (แถบหัวข้อ)", "zB": "Content (ผนังเนื้อหา)", "zC": "InfoMercial (แถบโฆษณา)", "zorder": "ลำดับโซน", "zorderHint": "ลากเพื่อจัดลำดับสองแถบบน (Topic／InfoMercial)", "picZoneC": "InfoMercial", "tModel": "โมเดล 3D", "picTooBig": "ข้าม {n} ไฟล์: เกิน 12 MB", "picBadType": "ข้าม {n} ไฟล์: ไม่ใช่รูปหรือโมเดล 3D", "insCard": "แทรกการ์ดก่อนใบนี้", "insTitle": "แทรกการ์ด", "insHintOwner": "วาง URL โค้ดฝัง หรือ Markdown การ์ดจะแทรกก่อนการ์ดนี้", "insHintGuest": "วาง URL โค้ดฝัง หรือ Markdown การ์ดจะแทรกก่อนการ์ดนี้ และเก็บไว้ในเบราว์เซอร์นี้เท่านั้น ผู้เยี่ยมชมคนอื่นจะไม่เห็น", "insPh": "https://…  ·  โค้ดฝัง <iframe>  ·  <md>…</md>  ·  https://…/model.glb", "insSave": "บันทึกและแทรก", "insCancel": "ยกเลิก", "insBad": "นี่ไม่ใช่ URL โค้ดฝัง หรือบล็อก <md>…</md> ที่ผนังนี้แสดงได้", "insDone": "✓ แทรกการ์ดแล้ว 1 ใบ", "insDel": "ลบการ์ดที่คุณเพิ่ม", "revTitle": "การ์ด Co-WiKi", "revDrop": "ลบการ์ดนี้", "revHint": "การ์ดของผู้เยี่ยมชมเผยแพร่ทันทีในชื่อ Co-WiKi กด ✓ เพื่ออนุมัติเป็นการ์ดถาวร กด ✕ เพื่อลบออกจากทุกคน", "revNone": "ยังไม่มีการ์ดจากผู้เข้าชม", "revDenied": "คีย์เจ้าของไม่ถูกต้อง", "revFail": "เชื่อมต่อเซิร์ฟเวอร์ไม่ได้", "revTimeout": "เซิร์ฟเวอร์ไม่ตอบสนอง ปิดแล้วลองอีกครั้ง", "revAsk": "คีย์เจ้าของ", "syncOn": "เชื่อมต่ออยู่ — ผู้เข้าชมทุกคนเห็นตรงกัน", "syncOff": "ออฟไลน์ — การ์ดใหม่จะอยู่ในเบราว์เซอร์นี้จนกว่าจะเชื่อมต่อได้", "insHintLive": "วาง URL โค้ดฝัง หรือ Markdown การ์ดจะแทรกก่อนการ์ดนี้เป็นการ์ด Co-WiKi ทุกคนเห็นทันที และจะกลายเป็นการ์ดถาวรเมื่อเจ้าของอนุมัติ", "insBusy": "เซิร์ฟเวอร์ไม่รับการ์ดนี้", "insRate": "ส่งการ์ดจากที่นี่มากเกินไป กรุณาลองใหม่ภายหลัง", "insDown": "ขณะนี้วอลล์นี้ออฟไลน์ จึงยังแชร์การ์ดใหม่ไม่ได้ รอให้จุดด้านบนเป็นสีเขียวแล้วลองอีกครั้ง", "insBig": "การ์ด Markdown นี้ยาวเกินไป", "insMd": "M↓ Markdown", "insKinds": "3D: วางโค้ดฝัง Sketchfab หรือลิงก์ https สาธารณะของ .glb / .stl / .obj", "insMdTpl": "# หัวเรื่อง\n\nเขียน **Markdown** ที่นี่ ใช้รายการ ตาราง ลิงก์ และรูป https ได้", "revOk": "อนุมัติเป็นการ์ดถาวร", "revPend": "รออนุมัติ", "revOkd": "อนุมัติแล้ว", "tMd": "Markdown", "sprTitle": "ภาพที่บินได้ 🐝", "sprHint": "ผึ้งในตัวสองตัวเปลี่ยนได้ทันที: ⇄ เปลี่ยนภาพ ✕ ลบ ＋ เพิ่ม (สูงสุด 4 ภาพ) หรือลากภาพมาวางบนช่อง ถ้าลบหมด ปุ่ม 🐝 ของผู้เยี่ยมชมจะใช้ไม่ได้", "sprRep": "เปลี่ยนภาพ", "sprDel": "ลบ", "sprAdd": "เพิ่มภาพที่บินได้", "sprReset": "กลับเป็นผึ้งในตัว", "sprDef": "ในตัว", "sprNone": "ไม่มีภาพที่บินได้ ปุ่ม 🐝 จะใช้ไม่ได้", "sprBig": "ภาพใหญ่เกิน 2 MB", "foldMore": "⌄ ดูทั้งหมด", "foldLess": "⌃ ย่อ"}};
 let LANG='en';
 function setLangCode(l){LANG=I18N[l]?l:'en';return LANG;}
 function getLang(){return LANG;}
@@ -1583,81 +1604,7 @@ function spriteStrip(box,get,set,tr){
   paint();
   return {paint};
 }
-const FX_COLORS=['#FFE27A','#0E7C7B','#F7F5F1','#FF8A65','#81C784','#64B5F6'];
 const fxReduce=()=>window.matchMedia&&matchMedia('(prefers-reduced-motion: reduce)').matches;
-/* 煙火固定在可視範圍內：不論捲到哪裡都看得到，也不會多畫看不見的地方 */
-function fireworks(target,ms,done){
-  if(fxReduce()){if(done)done();return;}
-  const W=Math.max(320,innerWidth),H=Math.max(240,innerHeight);
-  const cv=document.createElement('canvas');
-  cv.className='fx-layer';cv.width=W;cv.height=H;cv.style.width=W+'px';cv.style.height=H+'px';
-  document.body.appendChild(cv);
-  const g=cv.getContext('2d'),parts=[],rockets=[],t0=performance.now(),fade=900,CAP=2400;
-  let next=0,lastFinale=-9000;
-  const launch=()=>{
-    const x=W*(0.12+Math.random()*0.76),y=H*(0.14+Math.random()*0.42);
-    rockets.push({x,y:H+10,tx:x,ty:y,c:FX_COLORS[(Math.random()*FX_COLORS.length)|0]});
-    sfxLaunch();
-  };
-  /* gen 0：主爆；gen 1：碎裂後的二次小爆，畫面更熱鬧 */
-  const burst=(x,y,c,gen)=>{
-    const big=!gen,ring=big&&Math.random()<0.3,willow=big&&!ring&&Math.random()<0.28;
-    const n=big?(120+((Math.random()*70)|0)):(22+((Math.random()*14)|0)),sp=(big?5.2:2.4)+Math.random()*3.6;
-    for(let i=0;i<n;i++){
-      const a=(Math.PI*2*i)/n+Math.random()*(ring?.05:.2);
-      const v=sp*(ring?(0.92+Math.random()*0.16):(0.45+Math.random()*1.05));
-      parts.push({x,y,px:x,py:y,vx:Math.cos(a)*v,vy:Math.sin(a)*v,life:1,c,
-        r:(big?5.6:3.2)+Math.random()*4.2,gen:gen||0,split:big&&Math.random()<0.26,
-        drag:willow?0.995:0.988,fall:willow?0.022:0.045,slow:willow?0.0055:0});   /* 垂枝：慢慢往下淌 */
-    }
-    if(parts.length>CAP)parts.splice(0,parts.length-CAP);
-  };
-  const tick=now=>{
-    const el=now-t0;
-    /* 每約 14 秒來一次大齊放 */
-    if(el-lastFinale>14000&&el<ms){lastFinale=el;for(let f=0;f<6;f++)setTimeout(launch,f*90);}
-    if(el>=next&&el<ms){
-      launch();if(Math.random()<.6)launch();
-      if(Math.random()<.16){launch();launch();}        /* 偶爾來個齊放 */
-      next=el+(ms>10000?380+Math.random()*220:Math.max(140,ms/16));
-    }
-    /* 背景短暫壓暗，煙火才亮得起來 */
-    /* 開場壓暗讓煙火跳出來，接著慢慢還原亮度，長時間播放也不會遮住內容 */
-    const hold=Math.min(ms,9000),ease=Math.min(1,Math.max(0,(el-hold)/6000));
-    const base=0.46-(0.46-0.14)*ease;
-    const veil=base*Math.min(1,el/240)*(ms===Infinity?1:Math.min(1,Math.max(0,(ms+fade-el)/fade)));
-    g.globalCompositeOperation='source-over';g.clearRect(0,0,W,H);
-    g.fillStyle='rgba(12,12,14,'+veil.toFixed(3)+')';g.fillRect(0,0,W,H);
-    g.globalCompositeOperation='lighter';
-    for(let i=rockets.length-1;i>=0;i--){
-      const k=rockets[i];k.y-=10+Math.random()*3;
-      g.strokeStyle=k.c;g.lineWidth=3.4;g.globalAlpha=.95;
-      g.beginPath();g.moveTo(k.x,k.y);g.lineTo(k.x,k.y+20);g.stroke();
-      if(k.y<=k.ty){burst(k.x,k.ty,k.c,0);sfxBoom(k.x/W);rockets.splice(i,1);}
-    }
-    for(let i=parts.length-1;i>=0;i--){
-      const p=parts[i];
-      p.px=p.x;p.py=p.y;p.x+=p.vx;p.y+=p.vy;p.vy+=(p.fall||0.045);
-      const dr=p.drag||0.988;p.vx*=dr;p.vy*=dr;
-      p.life-=p.gen?0.016:(p.slow?p.slow:0.009);
-      if(p.life<=0){parts.splice(i,1);continue;}
-      if(p.split&&p.life<0.55){p.split=false;burst(p.x,p.y,FX_COLORS[(Math.random()*FX_COLORS.length)|0],1);}
-      const tw=p.life>0.6?1:0.55+0.45*Math.sin(el/28+p.x);       /* 尾段閃爍 */
-      g.globalAlpha=Math.max(0,p.life*tw);g.lineCap='round';
-      g.strokeStyle=p.c;g.lineWidth=p.r;
-      g.beginPath();g.moveTo(p.px,p.py);g.lineTo(p.x,p.y);g.stroke();
-      if(p.life>0.45){                                            /* 中心白熱核心，更亮 */
-        g.globalAlpha=Math.max(0,(p.life-0.45)*1.6*tw);g.strokeStyle='#fff';g.lineWidth=Math.max(1,p.r*0.42);
-        g.beginPath();g.moveTo(p.px,p.py);g.lineTo(p.x,p.y);g.stroke();
-      }
-    }
-    g.globalAlpha=1;g.globalCompositeOperation='source-over';
-    if(cv._stop){cv.remove();return;}
-    if(ms===Infinity||el<ms+fade+400)requestAnimationFrame(tick);
-    else{cv.remove();if(done)done();}
-  };
-  requestAnimationFrame(tick);
-}
 /* 兩隻蜜蜂在 A 區帶狀範圍內各自亂飛，路徑隨機所以會交錯而過。
    位置固定在視界內，捲動時不會飛走；每飛完一段就重新抽一條新路徑。 */
 function beeBand(){
@@ -1963,39 +1910,6 @@ function sndSet(on, skipSave){
   if(SND){audioResume();if(fxFly)buzzStart();}else buzzStop();
   if(!skipSave) saveWallSetting({ sound: SND });
 }
-/* 升空：短促的上滑哨音 */
-function sfxLaunch(){
-  const c=audio();if(!c||!SND||!fxFw)return;
-  const o=c.createOscillator(),g=c.createGain();
-  o.type='sine';o.frequency.setValueAtTime(420,c.currentTime);
-  o.frequency.exponentialRampToValueAtTime(1500,c.currentTime+0.45);
-  g.gain.setValueAtTime(0.0001,c.currentTime);
-  g.gain.exponentialRampToValueAtTime(0.05,c.currentTime+0.06);
-  g.gain.exponentialRampToValueAtTime(0.0001,c.currentTime+0.5);
-  o.connect(g);g.connect(MASTER);o.start();o.stop(c.currentTime+0.55);
-}
-/* 爆炸：低頻轟聲＋白噪尾巴，位置決定左右聲道 */
-function sfxBoom(pan){
-  const c=audio();if(!c||!SND||!fxFw)return;
-  const dur=1.1,sr=c.sampleRate,buf=c.createBuffer(1,Math.round(sr*dur),sr),d=buf.getChannelData(0);
-  for(let i=0;i<d.length;i++){const t=i/d.length;d[i]=(Math.random()*2-1)*Math.pow(1-t,3);}
-  const n=c.createBufferSource();n.buffer=buf;
-  const lp=c.createBiquadFilter();lp.type='lowpass';
-  lp.frequency.setValueAtTime(1800,c.currentTime);
-  lp.frequency.exponentialRampToValueAtTime(220,c.currentTime+0.7);
-  const g=c.createGain();
-  g.gain.setValueAtTime(0.28,c.currentTime);
-  g.gain.exponentialRampToValueAtTime(0.0008,c.currentTime+dur);
-  const th=c.createOscillator(),tg=c.createGain();
-  th.type='sine';th.frequency.setValueAtTime(90,c.currentTime);
-  th.frequency.exponentialRampToValueAtTime(38,c.currentTime+0.35);
-  tg.gain.setValueAtTime(0.22,c.currentTime);
-  tg.gain.exponentialRampToValueAtTime(0.0008,c.currentTime+0.5);
-  let out=MASTER;
-  if(c.createStereoPanner){const sp=c.createStereoPanner();sp.pan.value=Math.max(-1,Math.min(1,(pan||0.5)*2-1));sp.connect(MASTER);out=sp;}
-  n.connect(lp);lp.connect(g);g.connect(out);th.connect(tg);tg.connect(out);
-  n.start();th.start();th.stop(c.currentTime+0.5);
-}
 /* 飛行物：持續的嗡嗡聲，音量與左右位置跟著飛行位置走 */
 let BUZZ=null;
 function buzzStart(){
@@ -2031,7 +1945,8 @@ function buzzAt(x,depth){
 /* ---------- 特效開關 ----------
    煙火與飛行物各自獨立，狀態分開記住；另有一顆音效總開關。
    兩個特效都從載入就開始跑，分頁切到背景時自動暫停。 */
-let fxFw=false,fxFly=true,fxT=0,fxWall=null;   /* 預設開啟 3D 飛行蜜蜂 */
+/* item 27 rev 2: the fireworks effect was removed entirely (code, sounds, setting usage). */
+let fxFly=true,fxT=0,fxWall=null;   /* 預設開啟 3D 飛行蜜蜂 */
 function fxClearFly(){
   document.querySelectorAll('.fx-bee,.fx-spark').forEach(el=>{
     if(el._stop)el._stop();
@@ -2039,25 +1954,16 @@ function fxClearFly(){
   });
   buzzStop();
 }
-function fxClearFw(){document.querySelectorAll('.fx-layer').forEach(c=>{c._stop=true;});}
-function fxClear(){fxClearFly();fxClearFw();}
+function fxClear(){fxClearFly();}
 function fxStart(wall){
   fxWall=wall||fxWall;
   if(document.hidden||fxReduce()||!fxWall)return;
   if(fxFly&&beeImgs().length){flyBees();if(SND)buzzStart();}
-  if(fxFw&&!document.querySelector('.fx-layer'))fireworks(fxWall,Infinity,null);
 }
 function fxPaint(){
-  const f=document.getElementById('fwBtn'),y=document.getElementById('flyBtn'),n=document.getElementById('sndBtn');
-  if(f){f.setAttribute('aria-pressed',fxFw);f.querySelector('.mi').textContent=fxFw?'🎆':'🌑';}
+  const y=document.getElementById('flyBtn'),n=document.getElementById('sndBtn');
   if(y){y.setAttribute('aria-pressed',fxFly);y.querySelector('.mi').textContent=fxFly?'🐝':'💤';y.disabled=!beeImgs().length;}
   if(n){n.setAttribute('aria-pressed',SND);n.querySelector('.mi').textContent=SND?'🔊':'🔇';}
-}
-function fxSetFw(on, skipSave){
-  fxFw=!!on;try{localStorage.setItem('wiki_fx_fw2',fxFw?'1':'0');}catch(e){}
-  fxPaint();audioResume();
-  fxFw?fxStart():fxClearFw();
-  if(!skipSave) saveWallSetting({ fireworks: fxFw });
 }
 function fxSetFly(on, skipSave){
   fxFly=!!on;try{localStorage.setItem('wiki_fx_fly2',fxFly?'1':'0');}catch(e){}
@@ -2065,20 +1971,18 @@ function fxSetFly(on, skipSave){
   fxFly?fxStart():fxClearFly();
   if(!skipSave) saveWallSetting({ flybees: fxFly });
 }
-function fxSet(on){fxSetFw(on);fxSetFly(on);}        /* 舊介面：兩個一起開關 */
+function fxSet(on){fxSetFly(on);}        /* 舊介面 */
 /* 目前的特效開關，匯出獨立牆時當作預設值寫進去 */
-function fxState(){return {fw:fxFw,fly:fxFly,snd:SND};}
+function fxState(){return {fly:fxFly,snd:SND};}
 /* 作者匯出時的特效預設；訪客自己在 localStorage 的選擇仍然優先（見 fxInit） */
 function fxDefaults(d){
   if(!d||typeof d!=='object')return;
   if(typeof d.fly==='boolean')fxFly=d.fly;
-  if(typeof d.fw==='boolean')fxFw=d.fw;
   if(typeof d.snd==='boolean')SND=d.snd;
 }
-function fwBtnHTML(){return '<button id="fwBtn" class="pill fx" aria-pressed="false" data-i18n-aria="fxFire"><span class="mi">🎆</span></button>';}
 function flyBtnHTML(){return '<button id="flyBtn" class="pill fx" aria-pressed="true" data-i18n-aria="fxFly"><span class="mi">🐝</span></button>';}
 function sndBtnHTML(){return '<button id="sndBtn" class="pill snd" aria-pressed="true" data-i18n-aria="fxSound"><span class="mi">🔊</span></button>';}
-/* item 22: the fireworks toggle moved into the view icon's menu (fwBtnHTML kept for old callers) */
+/* item 22/27: the old fireworks icon is now the Cards/Beads switch; the fireworks effect is gone */
 function fxBtnHTML(){return '<span id="fxGroup" class="fx-group">'+flyBtnHTML()+sndBtnHTML()+'</span>';}
 /* 這面牆有沒有「放進來的東西」——圖卡、3D 卡，或自訂的飛行圖示。
    都沒有的話特效就沒有對象，MagicBar 上不擺特效鍵，特效本身也不跑。 */
@@ -2109,18 +2013,15 @@ function fxInit(wall, explicitFx){
   /* 訪客自己按過的開關優先於作者匯出時的預設；沒按過才用作者的預設 */
   try{
     const g=k=>localStorage.getItem(k);
-    if(g('wiki_fx_fw2')!==null)fxFw=g('wiki_fx_fw2')==='1';
     if(g('wiki_fx_fly2')!==null)fxFly=g('wiki_fx_fly2')==='1';
     if(g('wiki_snd')!==null)SND=g('wiki_snd')==='1';
   }catch(e){}
   if(explicitFx&&typeof explicitFx==='object'){
     if(typeof explicitFx.fly==='boolean')fxFly=explicitFx.fly;
-    if(typeof explicitFx.fw==='boolean')fxFw=explicitFx.fw;
     if(typeof explicitFx.snd==='boolean')SND=explicitFx.snd;
   }
   fxPaint();
-  const f=document.getElementById('fwBtn'),y=document.getElementById('flyBtn'),n=document.getElementById('sndBtn');
-  if(f)f.addEventListener('click',()=>fxSetFw(!fxFw));
+  const y=document.getElementById('flyBtn'),n=document.getElementById('sndBtn');
   if(y)y.addEventListener('click',()=>fxSetFly(!fxFly));
   if(n)n.addEventListener('click',()=>sndSet(!SND));
   /* 瀏覽器要求：先有使用者動作才能播放聲音 */
@@ -2248,7 +2149,7 @@ function zoneCUpdate(items){bandUpdate(ZC,items);}
    卡片是即時公開的，這裡是事後把關：看得到誰什麼時候貼了什麼，一鍵刪除。 */
 let revBox=null;
 function reviewClose(){if(revBox){revBox.remove();revBox=null;}}
-function reviewOpen(id,onDrop,onOk){
+function reviewOpen(id,onDrop,onOk,at){
   reviewClose();
   const box=document.createElement('div');
   box.className='ins-modal';box.id='revModal';
@@ -2263,6 +2164,7 @@ function reviewOpen(id,onDrop,onOk){
     +'</div></div>';
   document.body.appendChild(box);revBox=box;
   applyI18n();
+  ezPlaceBox(box,at||null,reviewClose,'below');   /* item 24 */
   box.addEventListener('click',e=>{if(e.target===box)reviewClose();});
   box.addEventListener('keydown',e=>{e.stopPropagation();if(e.key==='Escape')reviewClose();});
   box.querySelector('#revClose').addEventListener('click',reviewClose);
@@ -2575,13 +2477,13 @@ function bootReadonly(){
   const fromData=x=>{
     const o=normalize(x);if(!o)return null;
     o.role=x.role==='child'||(x.role==null&&!!x.guest)?'child':'mother';
-    if(o.role==='child'){o.mother_cid=x.mother_cid||x.anchor?String(x.mother_cid||x.anchor):null;o.zone='b';}
+    if(o.role==='child'){o.mother_cid=x.mother_cid||x.anchor?String(x.mother_cid||x.anchor):null;o.zone=(x.zone==='a'||x.zone==='c')?x.zone:'b';}
     if(o.cid&&/^[a-z0-9]{6,32}$/i.test(o.cid))o._id=o.cid;
     o.ok=o.role==='child'?(x.status==='approved'||(x.status==null&&!!x.ok)):true;
     o.status=o.ok?'approved':'pending';
     return o;
   };
-  const items=arr.map(fromData).filter(Boolean);
+  const items=ezInheritZones(arr.map(fromData).filter(Boolean));
   const gate=ezRevGate();
   const orig=new Map(items.map((o,i)=>[o._id,{w:o.w,h:o.h,span:o.span,rh:o.rh,i}]));
   /* 訪客自己拉過的卡片尺寸：存在他的瀏覽器，用原文雜湊認卡。
@@ -2664,7 +2566,7 @@ function bootReadonly(){
     zonePaint(zones,zoneCounts(curItems));
     wall.hidden=!zones.b;
     if(B.length)layoutWall(wall,B,mode>0?mode:0,car);else wall.style.height='';
-    beadsPaint(wall);
+    beadsPaint(wall);bandBeadsPaint();
   }
   let raf=0;const later=()=>{if(!raf)raf=requestAnimationFrame(()=>{raf=0;pack();});};
   addEventListener('wall:relayout',later);
@@ -2791,9 +2693,6 @@ function bootReadonly(){
         /* item 22: owner's default; a visitor's own saved choice wins */
         if(data.view === 'beads' || data.view === 'cards') VIEW_DEF = data.view;
         setView(ezViewEffective(ezViewLocal(wallId), VIEW_DEF));
-        if(typeof data.fireworks === 'boolean'){
-          fxSetFw(data.fireworks, true);
-        }
         if(typeof data.flybees === 'boolean'){
           fxSetFly(data.flybees, true);
         }
@@ -2868,7 +2767,7 @@ function bootReadonly(){
       +'</div>';
     document.body.appendChild(modal);
     modal.querySelector('#mlHead').textContent=opt.title||'Sign in';
-    ezPlaceBox(modal,opt.at);
+    ezPlaceBox(modal,opt.at,()=>close());
     const $m=sel=>modal.querySelector(sel);
     let timer=null,deadline=0,email='',done=false;
     const stopPoll=()=>{if(timer){clearInterval(timer);timer=null;}document.removeEventListener('visibilitychange',onVis);};
@@ -2892,7 +2791,7 @@ function bootReadonly(){
     const startPoll=()=>{stopPoll();deadline=Date.now()+15*60*1000;timer=setInterval(poll,4000);document.addEventListener('visibilitychange',onVis);};
     const returnTo=()=>{try{const L=window.top.location;return L.pathname+L.search;}catch(e){}try{const u=new URL(document.referrer);return u.pathname+u.search;}catch(e){}return '/';};
     const post=(url,body)=>fetch(url,{method:'POST',credentials:'same-origin',
-      headers:{'Content-Type':'application/json','Accept':'application/json','X-Requested-With':'XMLHttpRequest'},body:JSON.stringify(body)})
+      headers:Object.assign({'Content-Type':'application/json','Accept':'application/json','X-Requested-With':'XMLHttpRequest'},ezCsrfHeaders()),body:JSON.stringify(body)})
       .then(async r=>({r,j:await r.json().catch(()=>({}))}));
     const send=()=>{
       const v=$m('#mlEmail').value.trim(),err=email?$m('#mlErr2'):$m('#mlErr1'),btn=email?$m('#mlResend'):$m('#mlSend');
@@ -2935,6 +2834,14 @@ function bootReadonly(){
 
   /* item 20: any sign-in prompt on the wall -> popover by the cursor; resolves true once signed in */
   function signInAt(at, title, reopen){
+    /* EZ-REL-20261016-3: on another fleet host, sign in through ez.wiki (60 s handoff) */
+    const sso=ezSsoInfo();
+    if(sso&&sso.handoff){
+      if(reopen)ezReopenHint(reopen.wallId,reopen.cid,reopen.draft);
+      let r='/';try{const L=window.top.location;r=L.pathname+L.search;}catch(e){}
+      try{window.top.location.href='/login?r='+encodeURIComponent(r);}catch(e){window.location.href='/login';}
+      return Promise.resolve(false);
+    }
     return new Promise(res => showWallOtpModal(() => res(true), { at: at, title: title || 'Sign in', reopen: reopen || null, onClose: () => res(false) }));
   }
   WallCore.signIn = signInAt;
@@ -2986,7 +2893,8 @@ function bootReadonly(){
   function say(msg){
     if(typeof toast === 'function'){toast(msg);return;}
     const tEl=document.getElementById('toast');
-    if(tEl){tEl.textContent=msg;tEl.classList.add('show');clearTimeout(tEl._t);tEl._t=setTimeout(()=>tEl.classList.remove('show'),3500);}
+    if(tEl){try{const v=ezVisibleView(window);tEl.style.bottom=(Math.max(0,innerHeight-v.b)+24)+'px';}catch(e){}   /* item 28: pinned to the visible part of a tall frame */
+      tEl.textContent=msg;tEl.classList.add('show');clearTimeout(tEl._t);tEl._t=setTimeout(()=>tEl.classList.remove('show'),3500);}
   }
   /* Guest (or owner) adds a Co-WiKi child to a mother. No optimistic card:
      the card appears when the server answers with the new snapshot. */
@@ -3078,17 +2986,15 @@ function bootReadonly(){
   function viewMenuOpen(btn){
     viewMenuClose();
     const wrap=document.createElement('div');
-    wrap.innerHTML=ezViewMenuHTML(BEADS?'beads':'cards',VIEW_DEF,isOwnerNow(),fxFw);
+    wrap.innerHTML=ezViewMenuHTML(BEADS?'beads':'cards',VIEW_DEF,isOwnerNow(),null,!!ezViewLocal(wallId));
     vmEl=wrap.firstElementChild;document.body.appendChild(vmEl);
-    const r=btn.getBoundingClientRect(),w=vmEl.offsetWidth||240,h=vmEl.offsetHeight||200;
-    const p=ezAnchorBox(r.left,r.bottom+8+24,w,h,innerWidth,innerHeight);
-    vmEl.style.left=p.left+'px';vmEl.style.top=p.top+'px';
+    ezAnchorPopover(vmEl,{anchor:btn,prefer:'below',dismiss:false,sheet:false});   /* item 24 (own outside/Esc handling) */
     vmEl.addEventListener('click',e=>{
       const it=e.target.closest('[data-vm]');if(!it||it.disabled)return;
       const a=it.dataset.vm;
       if(a==='cards'||a==='beads')chooseView(a);
-      else if(a==='fw')fxSetFw(!fxFw);
       else if(a==='def')setDefaultView();
+      else if(a==='reset'){ezViewClearLocal(wallId);setView(VIEW_DEF);}
       viewMenuClose();btn.focus();
     });
     vmEl.addEventListener('keydown',e=>{
@@ -3111,44 +3017,56 @@ function bootReadonly(){
     b.addEventListener('keydown',e=>{if(e.key==='ArrowDown'||e.key==='ContextMenu'||(e.shiftKey&&e.key==='F10')){e.preventDefault();viewMenuOpen(b);}});
     b.addEventListener('click',e=>{if(held){held=false;e.preventDefault();return;}viewMenuClose();chooseView(BEADS?'cards':'beads');});
   })();
-  let VIEW_DEF='cards';
+  let VIEW_DEF='beads';   /* item 27: system default is Beads (owner can still set Cards) */
   setTimeout(()=>setView(ezViewEffective(ezViewLocal(wallId),VIEW_DEF)),0);   /* saved choice before the server answers */
   let beadPop=null,beadPT='mouse';
   function beadHide(){if(beadPop){beadPop.remove();beadPop=null;}}
-  function beadPlace(x,y){if(!beadPop)return;const p=ezPopPos(x,y,beadPop.offsetWidth,beadPop.offsetHeight,innerWidth,innerHeight);beadPop.style.left=p.left+'px';beadPop.style.top=p.top+'px';}
-  function beadModal(cls,inner,onClick){
-    const bg=document.createElement('div');bg.className=cls;bg.innerHTML=inner;
-    const close=()=>{bg.remove();removeEventListener('keydown',esc_);};
-    const esc_=e=>{if(e.key==='Escape')close();};
-    addEventListener('keydown',esc_);
-    bg.addEventListener('click',e=>{if(e.target===bg||e.target.closest('[data-close]')){close();return;}onClick&&onClick(e,close);});
-    document.body.appendChild(bg);return {bg,close};
+  function beadPlace(x,y){if(!beadPop)return;const v=ezVisibleView(window),p=ezPopPos(x-v.l,y-v.t,beadPop.offsetWidth,beadPop.offsetHeight,v.r-v.l,v.b-v.t);beadPop.style.left=(p.left+v.l)+'px';beadPop.style.top=(p.top+v.t)+'px';}
+  /* item 23 rev 2: no overlay. The card/sheet itself is the only layer; a document-level
+     pointerdown outside it (or Esc) closes it, so the wall stays fully usable and undimmed and
+     a click on another bead switches straight to that bead's card. */
+  let beadCur=null;
+  function beadModal(cls,inner,onClick,onClose,anchor){
+    if(beadCur)beadCur.close();
+    const tmp=document.createElement('div');tmp.innerHTML=inner;const bg=tmp.firstElementChild;bg.className+=' '+cls;
+    bg.addEventListener('click',e=>{if(e.target.closest('[data-close]')){cur.close();return;}onClick&&onClick(e,cur.close);});
+    document.body.appendChild(bg);
+    const cur={bg,close:()=>{if(!bg.isConnected)return;if(pop)pop.close(true);bg.remove();if(beadCur===cur)beadCur=null;onClose&&onClose();}};
+    beadCur=cur;
+    /* item 24: shared helper; the bead id is re-resolved because beads are repainted */
+    const id=anchor&&anchor.dataset?anchor.dataset.bead:null;
+    const pop=ezAnchorPopover(bg,{anchor:anchor?()=>{if(anchor.isConnected)return anchor;const nb=id&&document.querySelector('.bead[data-bead="'+(window.CSS&&CSS.escape?CSS.escape(id):id)+'"]');if(nb)anchor=nb;return anchor.isConnected?anchor:null;}:null,
+      mode:anchor?'anchor':'center',sheet:/sheet/.test(cls)?'force':false,onClose:()=>cur.close()});
+    cur.pop=pop;return cur;
   }
-  /* click on a bead: the full card (same - rules as on the wall) */
-  function beadFull(o){
-    const vw=innerWidth,vh=innerHeight,w=Math.min(vw-32,Math.max(380,Math.min(640,o.w||360)));
-    const h=Math.min(vh-64,Math.max(240,Math.round(w*((o.h&&o.w)?o.h/o.w:.75))));
-    const m=beadModal('bead-full-bg','<div class="bead-full" role="dialog" aria-modal="true" aria-label="Co-WiKi card"><button type="button" class="bf-x" data-close aria-label="Close">×</button></div>',(e,close)=>{
+  /* click on a bead: the full card next to the bead (item 23/24) */
+  function beadFull(o,anchor){
+    const V=ezVisibleView(window);
+    const w=Math.min(V.r-V.l-24,Math.max(380,Math.min(640,o.w||360)));
+    const h0=Math.max(240,Math.round(w*((o.h&&o.w)?o.h/o.w:.75)));
+    const m=beadModal('bead-pane','<div class="bead-full" role="dialog" aria-label="Co-WiKi card"><button type="button" class="bf-x" data-close aria-label="Close">×</button></div>',(e,close)=>{
       const b=e.target.closest('[data-act]');if(!b)return;
       if(b.dataset.act==='del'||b.dataset.act==='gdel'){e.preventDefault();close();removeCard(o);}
-    });
-    const el=makeCard(Object.assign({},o,{w,h}),true);el.style.width=w+'px';el.style.height=h+'px';
-    m.bg.querySelector('.bead-full').appendChild(el);
-    const bx=m.bg.querySelector('.bf-x');if(bx)bx.focus();
+    },null,null);
+    const el=makeCard(Object.assign({},o,{w,h:h0}),true);el.style.width=w+'px';el.style.height=h0+'px';
+    m.bg.appendChild(el);
+    if(anchor){m.pop.close(true);m.pop=ezAnchorPopover(m.bg,{anchor:(()=>{const id=anchor.dataset.bead;return ()=>{if(!anchor.isConnected){const nb=document.querySelector('.bead[data-bead="'+(window.CSS&&CSS.escape?CSS.escape(id):id)+'"]');if(nb)anchor=nb;}return anchor.isConnected?anchor:null;};})(),onClose:()=>m.close(),sheet:false});}
+    else{m.pop.close(true);m.pop=ezAnchorPopover(m.bg,{mode:'center',onClose:()=>m.close(),sheet:false});}
+    const bx=m.bg.querySelector('.bf-x');if(bx)bx.focus({preventScroll:true});
   }
-  /* touch: bottom-sheet preview, then "Open full card" (no prev/next) */
+  /* touch: bottom-sheet preview at the bottom of the visible screen, then "Open full card" */
   function beadSheet(o){
-    beadModal('bead-sheet-bg','<div class="bead-sheet" role="dialog" aria-modal="true" aria-label="Co-WiKi preview"><div class="grab"></div>'+ezBeadCardHTML(o)
+    beadModal('bead-pane sheet','<div class="bead-sheet" role="dialog" aria-label="Co-WiKi preview"><div class="grab"></div>'+ezBeadCardHTML(o)
       +'<button type="button" class="bs-open">Open full card</button></div>',(e,close)=>{
-      if(e.target.closest('.bs-open')){close();beadFull(o);}
-    });
+      if(e.target.closest('.bs-open')){close();beadFull(o,null);}
+    },null,null);
   }
-  (function bindBeads(){
-    const w=document.getElementById('wall');if(!w)return;
+  ['wall','zoneA','zoneC'].forEach(function bindBeads(hostId){   /* item 26: beads also in the Topic / InfoMercial bands */
+    const w=document.getElementById(hostId);if(!w)return;
     const beadOf=e=>e.target&&e.target.closest?e.target.closest('.bead'):null;
     w.addEventListener('pointerdown',e=>{beadPT=e.pointerType||'mouse';},true);
     w.addEventListener('pointerover',e=>{
-      const b=beadOf(e);if(!b||e.pointerType==='touch')return;
+      const b=beadOf(e);if(!b||e.pointerType==='touch'||beadCur)return;  /* no hover preview while a card is open */
       const o=byId.get(b.dataset.bead);if(!o)return;
       beadHide();beadPop=document.createElement('div');beadPop.className='bead-pop';beadPop.setAttribute('role','tooltip');
       beadPop.innerHTML=ezBeadCardHTML(o)+'<div class="bp-hint">Click bead to open full card</div>';
@@ -3156,20 +3074,20 @@ function bootReadonly(){
     });
     w.addEventListener('pointermove',e=>{if(beadPop&&beadOf(e))beadPlace(e.clientX,e.clientY);});
     w.addEventListener('pointerout',e=>{const b=beadOf(e);if(b&&!(e.relatedTarget&&b.contains(e.relatedTarget)))beadHide();});
-    w.addEventListener('focusin',e=>{const b=beadOf(e);if(!b)return;const o=byId.get(b.dataset.bead);if(!o)return;
+    w.addEventListener('focusin',e=>{const b=beadOf(e);if(!b||beadCur)return;const o=byId.get(b.dataset.bead);if(!o)return;
       beadHide();beadPop=document.createElement('div');beadPop.className='bead-pop';beadPop.innerHTML=ezBeadCardHTML(o);document.body.appendChild(beadPop);
       const r=b.getBoundingClientRect();beadPlace(r.right,r.top);});
     w.addEventListener('focusout',beadHide);
     addEventListener('scroll',beadHide,{passive:true});
     w.addEventListener('click',e=>{
       const m=e.target.closest&&e.target.closest('.bead-more');
-      if(m){e.preventDefault();const c=m.dataset.more;BEAD_OPEN.has(c)?BEAD_OPEN.delete(c):BEAD_OPEN.add(c);beadsPaint(w);return;}
+      if(m){e.preventDefault();const c=m.dataset.more;BEAD_OPEN.has(c)?BEAD_OPEN.delete(c):BEAD_OPEN.add(c);beadsPaint(document.getElementById('wall'));bandBeadsPaint();return;}
       const b=beadOf(e);if(!b)return;
       e.preventDefault();beadHide();
       const o=byId.get(b.dataset.bead);if(!o)return;
-      if(beadPT==='touch'||(typeof matchMedia==='function'&&matchMedia('(hover: none)').matches))beadSheet(o);else beadFull(o);
+      if(beadPT==='touch'||(typeof matchMedia==='function'&&matchMedia('(hover: none)').matches))beadSheet(o);else beadFull(o,b);
     });
-  })();
+  });
   /* Refresh class, corner and +/- of cards that are already on screen. */
   function refreshChrome(o){
     ['','a-','c-'].forEach(p=>document.querySelectorAll('.item[data-id="'+p+o._id+'"]').forEach(el=>{
@@ -3212,6 +3130,7 @@ function bootReadonly(){
     const keep=new Set(next.map(o=>o._id));
     items.forEach(o=>{if(!keep.has(o._id)){byId.delete(o._id);orig.delete(o._id);
       ['','a-','c-'].forEach(p=>document.querySelectorAll('.item[data-id="'+p+o._id+'"]').forEach(dropCard));}});
+    ezInheritZones(next);
     items.splice(0,items.length,...next);
     items.forEach((o,i)=>{byId.set(o._id,o);
       const g=orig.get(o._id);if(g)g.i=i;else orig.set(o._id,{w:o.w,h:o.h,span:o.span,rh:o.rh,i});
@@ -3220,6 +3139,8 @@ function bootReadonly(){
     /* DOM order = list order, so any later re-render keeps families together */
     remountB();
     const wallEl=document.getElementById('wall');
+    /* item 26: a family that moved to Topic/InfoMercial leaves the Content grid */
+    if(wallEl)wallEl.querySelectorAll(':scope>.item').forEach(el=>{const o=byId.get(el.dataset.id);if(o&&(o.zone||'b')!=='b')dropCard(el);});
     if(wallEl){items.filter(o=>(o.zone||'b')==='b').forEach(o=>{const el=wallEl.querySelector('.item[data-id="'+o._id+'"]');if(el)wallEl.appendChild(el);});
       if(!items.length&&!wallEl.querySelector('.empty')){empty=document.createElement('div');empty.className='empty';empty.textContent=t('wallEmpty');wallEl.replaceChildren(empty);}}
     pack();fxShow(fxAvailable(items));
@@ -3250,7 +3171,7 @@ function bootReadonly(){
         rb.hidden = !isOw;
       };
       showRev();
-      rb.addEventListener('click',()=>reviewOpen(wallId,()=>reloadSnapshot(),()=>reloadSnapshot()));
+      rb.addEventListener('click',e=>{if(revBox){reviewClose();return;}reviewOpen(wallId,()=>reloadSnapshot(),()=>reloadSnapshot(),rb);});
       /* 版主用 ?owner=… 進來一次，金鑰就記在這台瀏覽器裡 */
       try{
         const q=new URLSearchParams(location.search).get('owner');
@@ -3450,7 +3371,7 @@ function ezCardFromServer(c){
   o.cid=cid;
   o.role=c.role==='child'||(c.role!=='mother'&&!!c.anchor)?'child':'mother';
   o.mother_cid=o.role==='child'?(c.anchor?String(c.anchor):null):null;
-  o.zone=o.role==='child'?'b':((c.zone==='a'||c.zone==='c')?c.zone:'b');
+  o.zone=(c.zone==='a'||c.zone==='c')?c.zone:'b';   /* item 26: a child lives in its mother's zone (see ezInheritZones) */
   o.status=c.status==='approved'?'approved':(c.status==='pending'?'pending':(c.ok?'approved':'pending'));
   o.ok=o.status==='approved';
   o.guest=o.role==='child';           /* old CSS/class hooks: guest == Co-WiKi */
@@ -3461,6 +3382,14 @@ function ezCardFromServer(c){
   o.author=c.author?String(c.author).slice(0,24):null;
   o.pinned=+c.pinned||0;
   return o;
+}
+/* item 26: Co-WiKi works in all three zones. A child always shows in its mother's zone,
+   whatever an older row says (families move between zones together). */
+function ezInheritZones(list){
+  const z=new Map();
+  (list||[]).forEach(o=>{if(o&&o.role!=='child'&&o.cid)z.set(String(o.cid),o.zone||'b');});
+  (list||[]).forEach(o=>{if(o&&o.role==='child'&&o.mother_cid&&z.has(String(o.mother_cid)))o.zone=z.get(String(o.mother_cid));});
+  return list;
 }
 /* [[mother, child, child...], ...] in list order (server order). */
 function ezFamilies(list){
@@ -3483,7 +3412,7 @@ function ezShuffleFamilies(list,rnd){
   return list.map(o=>(o.zone||'b')==='b'?flatB[k++]:o);
 }
 /* Icon rules (card rules 2.2, 3.x, 5.x). ctx = {isOwner, userId, mine:Set(cid)} */
-function ezCanInsert(o){return !!o&&o.role!=='child'&&(o.zone||'b')==='b';}
+function ezCanInsert(o){return !!o&&o.role!=='child';}   /* item 26: any zone */
 function ezCanDelete(o,ctx){
   if(!o||o.role!=='child')return false;
   ctx=ctx||{};
@@ -3540,6 +3469,71 @@ function ezPopPos(x,y,w,h,vw,vh){
   if(L+w>vw-8)L=x-w-16;
   if(T+h>vh-8)T=y-h-12;
   return {left:Math.max(8,L),top:Math.max(8,T)};
+}
+/* item 24: ONE helper for every popover/panel. The wall runs in an iframe as tall as the whole
+   wall, so innerHeight / "centre" / bottom:0 are far outside what the visitor sees. This places a
+   position:fixed element inside the VISIBLE area (ezVisibleView): next to an anchor element or
+   point (ezFullPos: right > left > below > above), centred, or at a fixed top offset; caps its
+   height (internal scroll); re-fits on scroll/resize/content changes; bottom sheet on phones.
+   dismiss (default true): outside pointerdown / Esc call onClose. No backdrop is created. */
+function ezAnchorPopover(el,opt){
+  opt=opt||{};if(el.__ezPop)el.__ezPop.close(true);
+  const M=opt.margin==null?12:opt.margin,mode=opt.mode||'anchor';
+  const sheet=opt.sheet==='force'||(opt.sheet!==false&&mode!=='top'&&ezIsPhone());
+  let anchor=opt.anchor||null,raf=0,closed=false;
+  el.classList.add('ez-pop');if(sheet)el.classList.add('ez-sheet');
+  const rectOf=()=>{
+    if(!anchor)return null;
+    if(typeof anchor==='function'){const a=anchor();return a&&a.getBoundingClientRect?a.getBoundingClientRect():a;}
+    if(anchor.getBoundingClientRect)return anchor.isConnected?anchor.getBoundingClientRect():null;
+    if(typeof anchor.x==='number')return {left:anchor.x,right:anchor.x,top:anchor.y,bottom:anchor.y};
+    return null;};
+  const fit=()=>{raf=0;if(closed||!el.isConnected)return;
+    const v=ezVisibleView(window),H=Math.max(120,v.b-v.t-2*M);
+    if(sheet){Object.assign(el.style,{position:'fixed',left:'0px',right:'0px',top:'auto',bottom:Math.max(0,innerHeight-v.b)+'px',maxHeight:Math.round((v.b-v.t)*.88)+'px',overflow:'auto'});el.dataset.side='sheet';return;}
+    el.style.position='fixed';el.style.maxHeight=H+'px';el.style.overflow='auto';el.style.margin='0';
+    if(mode==='top'){el.style.top=Math.round(v.t+(opt.top==null?M:opt.top))+'px';el.style.maxHeight=Math.max(120,v.b-v.t-(opt.top==null?M:opt.top)-M)+'px';el.style.bottom='auto';el.dataset.side='top';return;}
+    const r=el.getBoundingClientRect(),w=Math.min(r.width,v.r-v.l-2*M),h=Math.min(el.scrollHeight||r.height,H);
+    const p=ezFullPos(mode==='center'?null:rectOf(),w,h,v,M,opt.prefer);
+    if(p.h<H)el.style.maxHeight=p.h+'px';
+    el.style.left=p.left+'px';el.style.top=p.top+'px';el.style.right='auto';el.style.bottom='auto';el.style.transform='none';el.dataset.side=p.side;};
+  const req=()=>{if(!raf)raf=(typeof requestAnimationFrame==='function'?requestAnimationFrame:setTimeout)(fit);};
+  const wins=[window];try{if(window.parent&&window.parent!==window&&window.frameElement)wins.push(window.parent);}catch(e){}
+  wins.forEach(x=>{x.addEventListener('scroll',req,{passive:true,capture:true});x.addEventListener('resize',req);});
+  let ro=null;if(typeof ResizeObserver!=='undefined'){ro=new ResizeObserver(req);ro.observe(el);}
+  const ign=[].concat(opt.ignore||[]);
+  const out=e=>{const t=e.target;if(el.contains(t))return;if(ign.some(x=>x&&x.contains&&x.contains(t)))return;if(anchor&&anchor.contains&&anchor.contains(t))return;h.close();};
+  const esc=e=>{if(e.key==='Escape'){e.stopPropagation();h.close();}};
+  const dismiss=opt.dismiss!==false;
+  if(dismiss){setTimeout(()=>{if(!closed)document.addEventListener('pointerdown',out,true);},0);document.addEventListener('keydown',esc,true);}
+  const h={el,fit:req,setAnchor(a){anchor=a;req();},close(silent){if(closed)return;closed=true;
+    wins.forEach(x=>{x.removeEventListener('scroll',req,{capture:true});x.removeEventListener('resize',req);});
+    if(ro)ro.disconnect();document.removeEventListener('pointerdown',out,true);document.removeEventListener('keydown',esc,true);
+    if(el.__ezPop===h)el.__ezPop=null;if(!silent&&typeof opt.onClose==='function')opt.onClose();}};
+  el.__ezPop=h;fit();return h;
+}
+/* item 23: the visible part of this window, in its own coordinates (same-origin srcdoc iframe
+   that is as tall as the wall: clip to the parent's viewport). */
+function ezVisibleView(win){
+  let l=0,t=0,r=win.innerWidth,b=win.innerHeight;
+  try{const fe=win.frameElement,P=win.parent;
+    if(fe&&P&&P!==win){const f=fe.getBoundingClientRect();
+      l=Math.max(l,-f.left);t=Math.max(t,-f.top);r=Math.min(r,P.innerWidth-f.left);b=Math.min(b,P.innerHeight-f.top);}}catch(e){}
+  if(r-l<200){l=0;r=win.innerWidth;}if(b-t<200){t=0;b=win.innerHeight;}
+  return {l,t,r,b};
+}
+/* item 23: full card beside the bead rect a (right > left > below > above), clamped into view v */
+function ezFullPos(a,w,h,v,m,prefer){
+  m=m==null?12:m;const g=14,H=Math.max(120,Math.min(h,v.b-v.t-2*m));
+  const cx=(lo,hi,x)=>Math.round(Math.min(Math.max(lo,x),Math.max(lo,hi)));
+  const X=x=>cx(v.l+m,v.r-m-w,x),Y=y=>cx(v.t+m,v.b-m-H,y);
+  if(!a)return {left:X((v.l+v.r-w)/2),top:Y((v.t+v.b-H)/2),h:H,side:'center'};
+  if(prefer==='below'){const room=v.b-m-(a.bottom+g);if(room>=Math.min(H,240)){const h2=Math.min(H,room);return {left:X((a.left+a.right-w)/2),top:Math.round(a.bottom+g),h:h2,side:'below'};}}
+  if(a.right+g+w<=v.r-m)return {left:X(a.right+g),top:Y(a.top-24),h:H,side:'right'};
+  if(a.left-g-w>=v.l+m)return {left:X(a.left-g-w),top:Y(a.top-24),h:H,side:'left'};
+  const below=v.b-m-(a.bottom+g),above=(a.top-g)-(v.t+m);
+  if(below>=H||below>=above)return {left:X(a.left-w/2),top:Y(a.bottom+g),h:H,side:'below'};
+  return {left:X(a.left-w/2),top:Y(a.top-g-H),h:H,side:'above'};
 }
 /* item 17: the + box opens next to the cursor, clamped inside the viewport */
 function ezAnchorBox(x,y,w,h,vw,vh){
@@ -3602,9 +3596,33 @@ function beadsPaint(wall){
   });
   L.innerHTML=html;
 }
-/* item 22: the EZBar icon that used to be Fireworks is now the Cards/Beads switch (everyone).
-   Click = switch for me (localStorage per wall). Hold / right-click / ArrowDown = menu:
-   Cards, Beads, Fireworks on/off (the icon's old job), and for the owner "Set as default for everyone". */
+/* item 26: Beads view in the Topic / InfoMercial bands. The band is a one-row carousel, so a
+   family's beads sit as a short row along the bottom-left of the mother card instead of a rail
+   beside it. Same beads (ok / pend / pinned), same hover preview, click and +N / − as the rail. */
+const BAND_BEAD_MAX=8;
+function ezBandBeadsHTML(o,ks,open){
+  if(!o||!o.cid||!ks||!ks.length)return '';
+  const show=open?ks.length:Math.min(ks.length,BAND_BEAD_MAX),more=ks.length-show;
+  let h='';
+  ks.slice(0,show).forEach(k=>{h+='<button type="button" class="bead '+(k.ok?'ok':'pend')+(k.pinned?' pinned':'')+'" data-bead="'+esc(k._id)+'" aria-label="'+esc('Co-WiKi: '+String(titleOf(k)||'card').slice(0,60)+' ('+(k.ok?'approved':'pending')+')')+'"></button>';});
+  if(more>0)h+='<button type="button" class="bead-more" data-more="'+esc(o.cid)+'" aria-label="'+esc('Show '+more+' more Co-WiKi cards')+'">+'+more+'</button>';
+  else if(open&&ks.length>BAND_BEAD_MAX)h+='<button type="button" class="bead-more less" data-more="'+esc(o.cid)+'" aria-label="Collapse">−</button>';
+  return h;
+}
+function bandBeadsPaint(){
+  const kids=ezBeadKids(window.__wallList||[]);
+  [ZA,ZC].forEach(B=>{if(!B||!B.els)return;B.els.forEach(el=>{
+    const o=el._o,ks=(BEADS&&o&&o.cid&&!ezIsChild(o))?(kids.get(String(o.cid))||[]):[];
+    let r=el.querySelector(':scope>.band-beads');
+    if(!ks.length){if(r)r.remove();return;}
+    if(!r){r=document.createElement('div');r.className='band-beads';el.appendChild(r);}
+    r.innerHTML=ezBandBeadsHTML(o,ks,BEAD_OPEN.has(String(o.cid)));
+  });});
+}
+/* item 22 + 27: the EZBar icon that used to be Fireworks is now ONLY the Cards/Beads switch (everyone).
+   Click = switch for me (remembered per wall in this browser). Hold / right-click / ArrowDown = menu:
+   Cards, Beads, "↺ Use the wall default" (only when I saved my own choice), and for the owner
+   "Set as default for everyone". No fireworks item any more. System default (no owner setting): Beads. */
 const VIEW_ICON={cards:'▦',beads:'⁘'};
 function viewBtnHTML(){
   return '<button type="button" id="viewBtn" class="pill vw" aria-pressed="false" aria-haspopup="menu" aria-label="Switch to Beads" title="Switch to Beads · hold or right-click for more"><span class="mi">▦</span></button>';
@@ -3612,13 +3630,17 @@ function viewBtnHTML(){
 function ezViewKey(id){return 'ez_view_'+(id||'default');}
 function ezViewLocal(id){try{const v=localStorage.getItem(ezViewKey(id));return v==='beads'||v==='cards'?v:null;}catch(e){return null;}}
 function ezViewSaveLocal(id,v){try{localStorage.setItem(ezViewKey(id),v==='beads'?'beads':'cards');}catch(e){}}
-function ezViewEffective(local,def){return local||(def==='beads'?'beads':'cards');}
-function ezViewMenuHTML(cur,def,owner,fw){
+/* EZ-REL-20261016-3: a visitor's own Cards/Beads choice is saved per wall in this browser,
+   per host (localStorage is per origin). "Use wall default" forgets it. */
+function ezViewClearLocal(id){try{localStorage.removeItem(ezViewKey(id));}catch(e){}}
+function ezViewEffective(local,def){return local||(def==='cards'?'cards':'beads');}   /* item 27: no owner setting -> Beads */
+/* item 27: the switch only toggles Cards <-> Beads. The Fireworks on/off item is gone from this
+   menu (4th argument kept only so old callers don't shift; it is ignored). */
+function ezViewMenuHTML(cur,def,owner,_fwIgnored,saved){
   const it=(act,on,label)=>'<button type="button" role="menuitemradio" class="vm-i" data-vm="'+act+'" aria-checked="'+(on?'true':'false')+'">'+label+'</button>';
   return '<div class="vm" role="menu" aria-label="View">'
     +it('cards',cur==='cards',VIEW_ICON.cards+' Cards')+it('beads',cur==='beads',VIEW_ICON.beads+' Beads')
-    +'<div class="vm-sep"></div>'
-    +'<button type="button" role="menuitemcheckbox" class="vm-i" data-vm="fw" aria-checked="'+(fw?'true':'false')+'">'+(fw?'🎆':'🌑')+' Fireworks: '+(fw?'on':'off')+'</button>'
+    +(saved?'<div class="vm-sep"></div><button type="button" role="menuitem" class="vm-i" data-vm="reset">↺ Use the wall default ('+(def==='beads'?'Beads':'Cards')+')</button>':'')
     +(owner?'<div class="vm-sep"></div><button type="button" role="menuitem" class="vm-i" data-vm="def"'+(cur===def?' disabled':'')+'>★ Set '+(cur==='beads'?'Beads':'Cards')+' as default for everyone</button>'
       +'<div class="vm-note">Wall default: '+(def==='beads'?'Beads':'Cards')+'</div>':'')
     +'</div>';
@@ -3631,7 +3653,10 @@ function ezAuthed(){
     .then(r=>r.ok?r.json():null).then(d=>!!(d&&d.authenticated&&d.user&&d.user.id)).catch(()=>false);
   return EZ_AUTH_P;
 }
-const EZ_BEAD_CSS='.bead-layer{position:absolute;left:0;top:0;width:0;height:0;z-index:6;pointer-events:none;transition:opacity .2s}body.shuffling .bead-layer,body.resizing .bead-layer{opacity:0}'
+const EZ_BEAD_CSS='.band-beads{position:absolute;left:10px;bottom:10px;z-index:9;display:flex;flex-wrap:wrap;gap:6px;max-width:calc(100% - 130px);pointer-events:none}'
+ +'.band-beads .bead,.band-beads .bead-more{pointer-events:auto;width:18px;height:18px;border-radius:50%;padding:0;cursor:pointer;box-sizing:border-box;transition:transform .15s,box-shadow .15s}'
+ +'.band-beads .bead-more{width:auto;min-width:24px;padding:0 6px;border-radius:999px;background:#0f172a;color:#fff;border:2px solid #fff;font:800 10px/1 system-ui,sans-serif}'
+ +'.bead-layer{position:absolute;left:0;top:0;width:0;height:0;z-index:6;pointer-events:none;transition:opacity .2s}body.shuffling .bead-layer,body.resizing .bead-layer{opacity:0}'
  +'.bead-rail{position:absolute;width:0;border-left:2px solid #cbd5e1;margin-left:-1px}.bead-rail.open{z-index:8}'
  +'.bead-rail .bead,.bead-rail .bead-more{pointer-events:auto;position:absolute;left:-10px;width:20px;height:20px;border-radius:50%;padding:0;cursor:pointer;box-sizing:border-box;transition:transform .15s,box-shadow .15s}'
  +'.bead.ok{background:#bbf7d0;border:2.5px solid #16a34a}.bead.pend{background:#fff;border:2.5px dotted #4ade80}'
@@ -3643,18 +3668,20 @@ const EZ_BEAD_CSS='.bead-layer{position:absolute;left:0;top:0;width:0;height:0;z
  +'.bp-meta{display:flex;align-items:center;gap:6px;font-size:11.5px;color:#475569}.bp-av{width:18px;height:18px;flex:0 0 18px;border-radius:50%;background:#f59e0b;color:#fff;font-size:10px;display:inline-flex;align-items:center;justify-content:center;font-weight:800}'
  +'.bp-st{margin-left:auto;font-weight:800;font-size:10.5px;border-radius:999px;padding:2px 8px;white-space:nowrap}.bp-st.pend{color:#15803d;background:#f0fdf4;border:1px dashed #4ade80}.bp-st.ok{color:#fff;background:#16a34a}'
  +'.bp-hint{font-size:10.5px;color:#94a3b8;padding:0 12px 10px}'
- +'.bead-sheet-bg,.bead-full-bg{position:fixed;inset:0;z-index:380;background:rgba(15,23,42,.5);display:flex}.bead-sheet-bg{align-items:flex-end}'
+ +'.bead-sheet.bead-pane{position:fixed;left:0;right:0;bottom:0;z-index:380;max-height:85vh;overflow:auto;box-shadow:0 -8px 30px rgba(0,0,0,.22);border-radius:18px 18px 0 0}'
  +'.bead-sheet{width:100%;background:#fff;border-radius:18px 18px 0 0;padding:8px 14px calc(16px + env(safe-area-inset-bottom));font:14px system-ui,sans-serif;animation:ezUp .22s ease-out}'
  +'.bead-sheet .grab{width:40px;height:4px;border-radius:4px;background:#cbd5e1;margin:2px auto 10px}.bead-sheet .bp-thumb{height:160px;border-radius:12px}.bead-sheet .bp-body{padding:12px 2px 4px}.bead-sheet .bp-title{white-space:normal;font-size:16px}'
  +'.bs-open{width:100%;margin-top:12px;padding:13px;border-radius:12px;border:0;background:#0f172a;color:#fff;font:800 14px system-ui,sans-serif;cursor:pointer}'
- +'.bead-full-bg{align-items:center;justify-content:center;padding:16px}.bead-full{position:relative;max-width:100%}.bead-full>.item{position:relative;left:auto;top:auto}'
- +'.bf-x{position:absolute;top:-14px;right:-14px;z-index:20;width:32px;height:32px;border-radius:50%;border:2px solid #111;background:#fff;font:800 16px/1 sans-serif;cursor:pointer}'
+ +'.bead-full{position:fixed;z-index:380;opacity:1;background:transparent;filter:drop-shadow(0 12px 28px rgba(0,0,0,.28)) drop-shadow(0 2px 6px rgba(0,0,0,.18));max-width:calc(100vw - 24px);overflow:auto;overscroll-behavior:contain}.bead-full>.item{position:relative;left:auto;top:auto;max-height:none}'
+ +'.bf-x{position:sticky;float:right;top:6px;margin:6px 6px -38px 0;z-index:20;width:32px;height:32px;border-radius:50%;border:2px solid #111;background:#fff;font:800 16px/1 sans-serif;cursor:pointer}'
  +'@keyframes ezUp{from{transform:translateY(40px);opacity:.4}to{transform:none;opacity:1}}'
  +'.vm{position:fixed;z-index:2147483000;min-width:220px;background:#fff;border:2px solid #111;border-radius:14px;box-shadow:0 10px 30px rgba(0,0,0,.18);padding:6px;display:flex;flex-direction:column;font:600 13px/1.2 system-ui,sans-serif}'
   +'.vm-i{display:block;width:100%;text-align:left;border:0;background:none;padding:9px 10px;border-radius:9px;cursor:pointer;color:#111;font:inherit}.vm-i:hover,.vm-i:focus{background:#f1f5f9;outline:none}.vm-i[aria-checked="true"]{background:#ecfdf5;color:#065f46}.vm-i[disabled]{opacity:.45;cursor:default}'
   +'.vm-sep{height:1px;background:#e5e7eb;margin:4px 6px}.vm-note{font-size:11px;color:#64748b;padding:2px 10px 6px}.pill.vw[aria-pressed="true"]{background:#0E7C7B;color:#fff}'
   +'.view-seg{display:inline-flex;border:2px solid #111;border-radius:999px;overflow:hidden;background:#fff;height:fit-content;align-self:center}.view-seg .vs{border:0;background:transparent;padding:5px 11px;font:800 12px system-ui,sans-serif;cursor:pointer;color:#111}.view-seg .vs[aria-pressed=true]{background:#34d399;color:#062e22}'
- +'.ins-modal.anchored{display:block;background:rgba(17,17,17,.12);padding:0}.ins-modal.anchored .ins-card{position:fixed;width:min(440px,calc(100vw - 16px));max-height:calc(100vh - 16px);overflow:auto}'
+ +'.ins-modal.pop{display:block;background:transparent!important;padding:0;pointer-events:none;backdrop-filter:none}.ins-modal.pop .ins-card{pointer-events:auto;position:fixed;width:min(440px,calc(100vw - 24px))}.ins-modal.pop .ins-card.rev-card{width:min(600px,calc(100vw - 24px))}.ins-modal.pop .ins-card.ez-sheet{width:auto;max-width:none;border-radius:18px 18px 0 0;border-bottom:0;animation:ezUp .22s ease-out}'
+ +'.ez-pop{box-shadow:0 18px 44px rgba(15,23,42,.22),0 2px 8px rgba(15,23,42,.12)}.bead-full.ez-pop,.vm.ez-pop{box-shadow:none}.vm.ez-pop{box-shadow:0 10px 30px rgba(0,0,0,.18)}'
+ +'.ins-modal.xanchored{display:block;padding:0}.ins-modal.anchored .ins-card{position:fixed;width:min(440px,calc(100vw - 16px));max-height:calc(100vh - 16px);overflow:auto}'
  +'.ins-modal.sheet{align-items:flex-end;padding:0}.ins-modal.sheet .ins-card{width:100%;max-width:none;border-radius:18px 18px 0 0;max-height:88vh;overflow:auto;border-bottom:0;animation:ezUp .22s ease-out}'
  +'.ins-up{display:flex;align-items:center;flex-wrap:wrap;gap:8px;border:1.5px dashed #cbd5e1;border-radius:12px;padding:8px 10px;font-size:12px;color:#334155;background:#f8fafc}'
  +'.ins-up-btn{display:inline-flex;align-items:center;gap:6px;border:2px solid #111;border-radius:999px;padding:4px 12px;font-weight:800;background:#fff;cursor:pointer}.ins-up-btn[aria-disabled=true]{opacity:.5;pointer-events:none}'
@@ -3662,14 +3689,11 @@ const EZ_BEAD_CSS='.bead-layer{position:absolute;left:0;top:0;width:0;height:0;z
 
 /* item 17/20: a dialog card next to the cursor, clamped to the viewport; bottom sheet on phones */
 function ezIsPhone(){return typeof matchMedia==='function'&&(matchMedia('(max-width: 640px)').matches||matchMedia('(hover: none) and (pointer: coarse)').matches);}
-function ezPlaceBox(box,at){
-  const cardEl=box.querySelector('.ins-card');if(!cardEl)return;
-  if(ezIsPhone()){box.classList.add('sheet');return;}
-  if(!at)return;
-  box.classList.add('anchored');
-  const fit=()=>{if(!cardEl.isConnected)return;const r=cardEl.getBoundingClientRect();
-    const p=ezAnchorBox(at.x,at.y,r.width,r.height,innerWidth,innerHeight);cardEl.style.left=p.left+'px';cardEl.style.top=p.top+'px';};
-  fit();if(typeof ResizeObserver!=='undefined')new ResizeObserver(fit).observe(cardEl);
+function ezPlaceBox(box,at,onClose,prefer){
+  const cardEl=box.querySelector('.ins-card');if(!cardEl)return null;
+  /* item 24: no backdrop; the card is a popover in the visible area (anchored at the click, else centred) */
+  box.classList.add('pop');if(at)box.classList.add('anchored');
+  return ezAnchorPopover(cardEl,{anchor:at||null,mode:at?'anchor':'center',prefer,onClose:onClose||(()=>box.remove())});
 }
 /* item 20 fallback: a full-page login must come back to this wall and reopen the + box */
 const EZ_REOPEN_KEY='ez_reopen';
@@ -3681,9 +3705,10 @@ function ezTakeReopen(wallId){
     if(!v||v.w!==String(wallId||'')||Date.now()-(+v.t||0)>30*60*1000)return null;
     localStorage.removeItem(EZ_REOPEN_KEY);return v;}catch(e){return null;}
 }
-/* item 19: owner pins Content mothers and approved Co-WiKi children */
+/* item 19 + 26: owner pins mothers and approved Co-WiKi children, in every zone
+   (a pin moves the family to the front of its own zone; a child to the front of its family) */
 function ezCanPin(o,ctx){
-  if(!o||!(ctx&&ctx.isOwner)||(o.zone||'b')!=='b')return false;
+  if(!o||!(ctx&&ctx.isOwner))return false;
   return o.role==='child'?o.status==='approved':true;
 }
 const EZ_PIN_CSS='.card-tools .pin{pointer-events:auto;width:22px;height:22px;border-radius:50%;border:0;background:#eef0f3;color:#64748b;font-size:11px;line-height:22px;padding:0;cursor:pointer;filter:grayscale(1);opacity:.75}'
@@ -3692,7 +3717,7 @@ const EZ_PIN_CSS='.card-tools .pin{pointer-events:auto;width:22px;height:22px;bo
   +'.item.mother.pinned::after{content:"📌 Pinned"}.item.child.pinned::after{content:"📌"}'
   +'.item.mother.pinned{box-shadow:0 0 0 3px #f59e0b,0 6px 18px rgba(245,158,11,.25)!important}'
   +'.bead.pinned::after{content:"📌";position:absolute;left:14px;top:-7px;font-size:11px;pointer-events:none}.bp-pin{font-size:10px;font-weight:800;color:#92400e;background:#fef3c7;border-radius:999px;padding:1px 6px}'
-  +'.ins-modal.anchored .wall-otp-card{width:min(360px,calc(100vw - 16px))!important}.ins-modal.sheet .wall-otp-card{max-width:none!important}#wallOtpModal .ins-hint{color:#475569!important}'
+  +'.ins-modal.anchored .wall-otp-card{width:min(360px,calc(100vw - 16px))!important}.ins-modal.sheet .wall-otp-card{max-width:none!important}#wallOtpModal .ins-hint{color:#475569!important}.ins-modal .ins-card.ez-sheet.wall-otp-card{width:auto!important;max-width:none!important}'
   +'.ml .ml-top{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px}.ml .ml-top b{font-size:16px}.ml .ml-x{border:0;background:none;font-size:18px;cursor:pointer;color:#64748b}'
   +'.ml .ml-p{font-size:12.5px;line-height:1.5;color:#475569;margin:0 0 10px}.ml .ml-h{font-size:16px;font-weight:800;margin:0 0 4px}.ml .ml-mail{font-size:28px}'
   +'.ml .ml-l{display:block;font-size:11px;font-weight:700;text-transform:uppercase;color:#64748b;margin:6px 0 4px}.ml .ml-in{width:100%;box-sizing:border-box;padding:10px 12px;border:1.5px solid #cbd5e1;border-radius:8px;font-size:15px}'
@@ -3706,10 +3731,10 @@ function ezInjectCardCss(doc){
     const st=doc.createElement('style');st.id='ez-card-rules';st.textContent=EZ_CARD_CSS+EZ_SHY_CSS+EZ_BEAD_CSS+EZ_PIN_CSS;doc.head.appendChild(st);}catch(e){}
 }
 ezInjectCardCss();
-window.WallCore={EZ_CARD_CSS,EZ_SHY_CSS,tombHTML,shyObserve,hostOf,ezInjectCardCss,fitColumns,STD_W,STD_H,GRID,MIN,YT,esc,httpUrl,normalize,makeCard,renderAll,applySize,watchWidth,validCols,bootReadonly,layoutWall,fitH,onMeasure,fitOf,isTomb,setFrameCheck,checkFrames,dropCard,carouselBtnHTML,setCarousel,carSync,
-  VERSION,verBadge,parseOne,isMarkdown,isHtml,htmlDoc,autoCap,foldSync,spriteStrip,validSprites,spriteSrc,SPRITE_DEF,SPRITE_MAX,fxPaint,soloIframe,cornerHTML,mdRender,mdDoc,mdInner,mdTag,MD_RE,MD_MAX,rawHash,insertDialog,resizeStart,setWallSync,wallMe,setOwnerToken,ownerToken,syncBtnHTML,syncDropAll,reviewOpen,modelDoc,modelTag,parseModelTag,isModelFile,modelExt,M3D_EXT,M3D_OK,MODEL_W,MODEL_H,ZONES,ZNAME,ZORDERS,validOrder,applyZoneOrder,orderLabel,zoneBtnHTML,zonePaint,zoneCounts,bindZones,validZones,FDEF,FILTER_MIN,applyView,zoneAInit,zoneAUpdate,zoneCInit,zoneCUpdate,introFX,playFX,fxInit,fxSet,fxSetFw,fxSetFly,fxState,fxDefaults,fxShow,fxAvailable,isMediaCard,sndSet,fxBtnHTML,fwBtnHTML,flyBtnHTML,sndBtnHTML,fireworks,flyBees,create3DBee,filterBtnHTML,filterBarHTML,bindFilter,setMetaFetch,fetchMeta,parseDur,fmtDur,
+window.WallCore={csrfHeaders:ezCsrfHeaders,ssoInfo:ezSsoInfo,EZ_CARD_CSS,EZ_SHY_CSS,tombHTML,shyObserve,hostOf,ezInjectCardCss,fitColumns,STD_W,STD_H,GRID,MIN,YT,esc,httpUrl,normalize,makeCard,renderAll,applySize,watchWidth,validCols,bootReadonly,layoutWall,fitH,onMeasure,fitOf,isTomb,setFrameCheck,checkFrames,dropCard,carouselBtnHTML,setCarousel,carSync,
+  VERSION,verBadge,parseOne,isMarkdown,isHtml,htmlDoc,autoCap,foldSync,spriteStrip,validSprites,spriteSrc,SPRITE_DEF,SPRITE_MAX,fxPaint,soloIframe,cornerHTML,mdRender,mdDoc,mdInner,mdTag,MD_RE,MD_MAX,rawHash,insertDialog,resizeStart,setWallSync,wallMe,setOwnerToken,ownerToken,syncBtnHTML,syncDropAll,reviewOpen,modelDoc,modelTag,parseModelTag,isModelFile,modelExt,M3D_EXT,M3D_OK,MODEL_W,MODEL_H,ZONES,ZNAME,ZORDERS,validOrder,applyZoneOrder,orderLabel,zoneBtnHTML,zonePaint,zoneCounts,bindZones,validZones,FDEF,FILTER_MIN,applyView,zoneAInit,zoneAUpdate,zoneCInit,zoneCUpdate,introFX,playFX,fxInit,fxSet,fxSetFly,fxState,fxDefaults,fxShow,fxAvailable,isMediaCard,sndSet,fxBtnHTML,flyBtnHTML,sndBtnHTML,flyBees,create3DBee,filterBtnHTML,filterBarHTML,bindFilter,setMetaFetch,fetchMeta,parseDur,fmtDur,
   saveWallSetting,
   I18N,t,colsText,setLangCode,getLang,applyI18n,langSelectHTML,menuHTML,updateLayoutUI,bindMenu,randomSize,
   shuffled,shuffleBtnHTML,reorderAnimated,
-  ezStripTags,ezParseSheet,ezSnapSig,ezHeightDamper,ezSheetIndex,ezSheetFilter,ezSheetMemory,ezRetag,ezRemoveCids,ezRevGate,ezCardFromServer,ezFamilies,ezShuffleFamilies,ezCanInsert,ezCanDelete,ezRowLayout,ezMineAdd,toolsHTML,ezBeadSlots,ezPopPos,ezAnchorBox,ezBeadKids,ezBeadThumb,ezBeadCardHTML,beadsPaint,ezIsChild,ezCanPin,ezPlaceBox,ezViewKey,ezViewLocal,ezViewSaveLocal,ezViewEffective,ezViewMenuHTML,viewBtnHTML,ezReopenHint,ezTakeReopen,setBeadsFlag:on=>{BEADS=!!on;},isBeads:()=>BEADS};
+  ezStripTags,ezParseSheet,ezSnapSig,ezHeightDamper,ezSheetIndex,ezSheetFilter,ezSheetMemory,ezRetag,ezRemoveCids,ezRevGate,ezCardFromServer,ezInheritZones,ezBandBeadsHTML,ezFamilies,ezShuffleFamilies,ezCanInsert,ezCanDelete,ezRowLayout,ezMineAdd,toolsHTML,ezBeadSlots,ezPopPos,ezAnchorBox,ezFullPos,ezVisibleView,ezAnchorPopover,ezBeadKids,ezBeadThumb,ezBeadCardHTML,beadsPaint,ezIsChild,ezCanPin,ezPlaceBox,ezViewKey,ezViewLocal,ezViewClearLocal,ezViewClearLocal,ezViewSaveLocal,ezViewEffective,ezViewMenuHTML,viewBtnHTML,ezReopenHint,ezTakeReopen,setBeadsFlag:on=>{BEADS=!!on;},isBeads:()=>BEADS};
 })();

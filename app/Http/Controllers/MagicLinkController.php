@@ -91,7 +91,7 @@ class MagicLinkController extends Controller
         $code = str_pad((string) random_int(0, 999999), 6, '0', STR_PAD_LEFT);
         DB::transaction(function () use ($email, $raw, $code, $r) {
             // a new request cancels older unused ones for this email
-            LoginToken::where('email', $email)->whereNull('used_at')->update(['used_at' => now()]);
+            LoginToken::where('type', 'login')->where('email', $email)->whereNull('used_at')->update(['used_at' => now()]);
             LoginToken::create([
                 'email'      => $email,
                 'token_hash' => self::tokenHash($raw),
@@ -155,7 +155,7 @@ class MagicLinkController extends Controller
         if (!filter_var($email, FILTER_VALIDATE_EMAIL) || !preg_match('/^\d{6}$/', $code)) {
             return response()->json(['success' => false, 'error' => 'bad_code', 'message' => 'Enter the 6-digit code from the email.'], 422);
         }
-        $row = LoginToken::where('email', $email)->whereNull('used_at')->where('expires_at', '>', now())->latest('id')->first();
+        $row = LoginToken::where('type', 'login')->where('email', $email)->whereNull('used_at')->where('expires_at', '>', now())->latest('id')->first();
         if (!$row) {
             return response()->json(['success' => false, 'error' => 'expired', 'message' => 'This code has expired or was already used. Request a new link.'], 422);
         }
@@ -197,7 +197,7 @@ class MagicLinkController extends Controller
         if (!preg_match('/^[A-Za-z0-9_-]{43}$/', $token)) {
             return $fail();
         }
-        $row = LoginToken::where('token_hash', self::tokenHash($token))->first();
+        $row = LoginToken::where('type', 'login')->where('token_hash', self::tokenHash($token))->first();
         if (!$row || $row->used_at || $row->expires_at->isPast()) {
             return $fail();
         }

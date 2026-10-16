@@ -15,6 +15,9 @@ return Application::configure(basePath: dirname(__DIR__))
     )
     ->withMiddleware(function (Middleware $middleware) {
         $middleware->web(append: [
+            // EZ-REL-20261016-3 (order matters: both before Inertia shares auth.user)
+            \App\Http\Middleware\EnsureSessionEpoch::class,          // logout everywhere
+            \App\Http\Middleware\StrictCsrfForSessionRoutes::class,  // CSRF on session/owner/upload routes
             \App\Http\Middleware\HandleInertiaRequests::class,
             \Illuminate\Http\Middleware\AddLinkHeadersForPreloadedAssets::class,
         ]);
@@ -24,6 +27,8 @@ return Application::configure(basePath: dirname(__DIR__))
         ]);
 
 		
+		// Legacy routes stay exempt here; EZ-REL-20261016-3 re-enables CSRF for the
+		// session / owner / upload / sign-in routes in StrictCsrfForSessionRoutes.
 		$middleware->validateCsrfTokens(except: [
 			'*',
 		]);

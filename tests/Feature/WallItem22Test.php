@@ -27,14 +27,17 @@ class WallItem22Test extends TestCase
         return $this->getJson('/api/wall/w22/cards')->assertOk()->json('view');
     }
 
-    public function test_default_is_cards_and_only_the_owner_can_change_it(): void
+    public function test_default_is_beads_and_only_the_owner_can_change_it(): void
     {
         $this->withHeaders(self::OWN)->postJson('/api/wall/w22/push-to-wall', ['raw' => "a\n---\nb"])->assertOk();
         $this->flushHeaders();
-        $this->assertSame('cards', $this->wallView());
-        $this->postJson('/api/wall/w22/settings', ['view' => 'beads'])->assertStatus(403);
+        $this->assertSame('beads', $this->wallView()); // item 27: no owner setting -> Beads
+        $this->postJson('/api/wall/w22/settings', ['view' => 'cards'])->assertStatus(403);
         $u = User::factory()->create();
-        $this->actingAs($u)->postJson('/api/wall/w22/settings', ['view' => 'beads'], ['Sec-Fetch-Site' => 'same-origin'])->assertStatus(403);
+        $this->actingAs($u)->postJson('/api/wall/w22/settings', ['view' => 'cards'], ['Sec-Fetch-Site' => 'same-origin'])->assertStatus(403);
+        $this->assertSame('beads', $this->wallView());
+        $this->withHeaders(self::OWN)->postJson('/api/wall/w22/settings', ['view' => 'cards'])->assertOk();
+        $this->flushHeaders();
         $this->assertSame('cards', $this->wallView());
         $this->withHeaders(self::OWN)->postJson('/api/wall/w22/settings', ['view' => 'beads'])->assertOk();
         $this->flushHeaders();

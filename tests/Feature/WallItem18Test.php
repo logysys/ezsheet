@@ -127,35 +127,36 @@ class WallItem18Test extends TestCase
         $this->assertSame(0, WallCard::whereNotNull('mother_id')->count());
     }
 
-    public function test_no_upload_to_topic_infomercial_children_unknown_or_missing_wall(): void
+    public function test_upload_works_in_topic_infomercial_but_not_children_unknown_or_missing_wall(): void
     {
         $u = User::factory()->create();
         $png = base64_decode(self::PNG);
-        $this->up($u, $this->mother('Topic title')->cid, 'a.png', $png)->assertStatus(422)->assertJson(['error' => 'anchor_zone']);
-        $this->up($u, $this->mother('Ad text')->cid, 'a.png', $png)->assertStatus(422)->assertJson(['error' => 'anchor_zone']);
+        // item 26: media Co-WiKi works on Topic and InfoMercial WiKi cards too, in their zone
+        $this->assertSame('a', $this->up($u, $this->mother('Topic title')->cid, 'a.png', $png)->assertStatus(201)->json('card.zone'));
+        $this->assertSame('c', $this->up($u, $this->mother('Ad text')->cid, 'a.png', $png)->assertStatus(201)->json('card.zone'));
         $child = $this->up($u, $this->mother('mother one')->cid, 'a.png', $png)->assertStatus(201)->json('card.cid');
         $this->up($u, $child, 'a.png', $png)->assertStatus(422)->assertJson(['error' => 'anchor_not_mother']);
         $this->up($u, 'nope123456', 'a.png', $png)->assertStatus(422);
         $walls = Wall::count();
         $this->actingAs($u)->post('/api/wall/W0009999/cards/abc/media', ['file' => UploadedFile::fake()->createWithContent('a.png', $png)], self::SAME)->assertStatus(404);
         $this->assertSame($walls, Wall::count());
-        $this->assertSame(1, WallCard::whereNotNull('mother_id')->count());
+        $this->assertSame(3, WallCard::whereNotNull('mother_id')->count());
         // a wall that switched Co-WiKi off
         $this->wall->update(['meta' => ['cowiki' => false]]);
         $this->up($u, $this->mother('mother two')->cid, 'a.png', $png)->assertStatus(403)->assertJson(['error' => 'cowiki_off']);
     }
 
-    public function test_view_setting_is_owner_only_and_defaults_to_cards(): void
+    public function test_view_setting_is_owner_only_and_defaults_to_beads(): void
     {
-        $this->getJson('/api/wall/w18/cards')->assertJson(['view' => 'cards']);
-        $this->withHeaders(['x-wall-me' => 'guest-zzzzzzzz'])->postJson('/api/wall/w18/settings', ['view' => 'beads'])->assertStatus(403);
-        $this->flushHeaders();
-        $this->getJson('/api/wall/w18/cards')->assertJson(['view' => 'cards']);
-        $this->withHeaders(['x-wall-owner' => self::OWNER_TOKEN])->postJson('/api/wall/w18/settings', ['view' => 'beads'])->assertOk();
+        $this->getJson('/api/wall/w18/cards')->assertJson(['view' => 'beads']); // item 27: system default
+        $this->withHeaders(['x-wall-me' => 'guest-zzzzzzzz'])->postJson('/api/wall/w18/settings', ['view' => 'cards'])->assertStatus(403);
         $this->flushHeaders();
         $this->getJson('/api/wall/w18/cards')->assertJson(['view' => 'beads']);
+        $this->withHeaders(['x-wall-owner' => self::OWNER_TOKEN])->postJson('/api/wall/w18/settings', ['view' => 'cards'])->assertOk();
+        $this->flushHeaders();
+        $this->getJson('/api/wall/w18/cards')->assertJson(['view' => 'cards']);
         $this->withHeaders(['x-wall-owner' => self::OWNER_TOKEN])->postJson('/api/wall/w18/settings', ['view' => '<script>'])->assertOk();
         $this->flushHeaders();
-        $this->getJson('/api/wall/w18/cards')->assertJson(['view' => 'beads']); // item 22: invalid values are ignored
+        $this->getJson('/api/wall/w18/cards')->assertJson(['view' => 'cards']); // item 22: invalid values are ignored
     }
 }

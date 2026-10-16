@@ -19,7 +19,8 @@ function boot() {
 test('visitor choice per wall in localStorage wins over the owner default', () => {
   const { w, WC } = boot();
   assert.equal(WC.ezViewEffective(null, 'beads'), 'beads');
-  assert.equal(WC.ezViewEffective(null, undefined), 'cards');
+  assert.equal(WC.ezViewEffective(null, undefined), 'beads');   // item 27: system default
+  assert.equal(WC.ezViewEffective(null, 'cards'), 'cards');
   assert.equal(WC.ezViewLocal('W1'), null);
   WC.ezViewSaveLocal('W1', 'beads');
   assert.equal(w.localStorage.getItem('ez_view_W1'), 'beads');
@@ -37,10 +38,12 @@ test('the bar has one view icon (no separate Cards|Beads toggle, no fireworks bu
   assert.match(CORE, /zoneBtnHTML\(\)\+viewBtnHTML\(\)\+fxBtnHTML\(\)/);
   assert.doesNotMatch(CORE, /isOwner\?viewBtnHTML/);
 });
-test('menu keeps Fireworks reachable; only the owner gets "Set as default for everyone"', () => {
+test('item 27: menu is Cards/Beads only (no Fireworks); only the owner gets "Set as default for everyone"', () => {
   const { WC } = boot();
   const guest = WC.ezViewMenuHTML('beads', 'cards', false, true);
-  assert.match(guest, /data-vm="fw"[^>]*aria-checked="true">🎆 Fireworks: on/);
+  assert.doesNotMatch(guest, /data-vm="fw"|Fireworks/);
+  assert.deepEqual([...guest.matchAll(/data-vm="(\w+)"/g)].map(m => m[1]), ['cards', 'beads']);
+  assert.match(WC.ezViewMenuHTML('cards', 'beads', false, true, true), /data-vm="reset">↺ Use the wall default \(Beads\)/);
   assert.doesNotMatch(guest, /default for everyone/);
   const owner = WC.ezViewMenuHTML('beads', 'cards', true, false);
   assert.match(owner, /data-vm="def">★ Set Beads as default for everyone/);

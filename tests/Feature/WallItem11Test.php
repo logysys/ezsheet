@@ -134,13 +134,15 @@ class WallItem11Test extends TestCase
         $this->assertSame(self::WIKI, $res->json('not_added.0.mother_raw'));
     }
 
-    public function test_mother_zone_locked_is_a_clear_422_and_saves_nothing(): void
+    public function test_mother_with_cowiki_may_leave_content_and_family_moves_along(): void
     {
         [$w, $owner] = $this->w76();
-        // Wiki (has a Co-WiKi card) moved above ### with a new card: rejected with the reason, nothing saved.
-        $res = $this->push($owner, implode("\n", [self::ALI, '---', self::WIKI, '---', self::NEW, '###', self::YT, '---', self::SP]));
-        $res->assertStatus(422)->assertJson(['error' => 'mother_zone_locked']);
-        $this->assertSame(self::WIKI, $res->json('cards.0.raw'));
-        $this->assertSame(4, count($this->mothers()));
+        // item 26: Wiki (has a Co-WiKi card) moved above ### (InfoMercial) with a new card: accepted, family follows.
+        $res = $this->push($owner, implode("\n", [self::WIKI, '###', self::ALI, '---', self::NEW, '---', self::YT, '---', self::SP]));
+        $res->assertOk();
+        $this->assertSame(5, count($this->mothers()));
+        $m = WallCard::where('content', self::WIKI)->first();
+        $this->assertSame('c', $m->zone);
+        $this->assertSame(0, WallCard::where('mother_id', $m->id)->where('zone', '!=', 'c')->count());
     }
 }

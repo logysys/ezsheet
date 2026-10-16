@@ -19,12 +19,13 @@ function boot({ owner = false, phone = false } = {}) {
   w.eval(CORE);
   return { w, d: w.document, WC: w.WallCore };
 }
-test('pin icon: owner only; mothers in Content and approved children only', () => {
+test('pin icon: owner only; mothers in every zone and approved children only (item 26)', () => {
   const o = boot({ owner: true }).WC, g = boot().WC;
   const ctx = { isOwner: true };
   assert.equal(o.ezCanPin({ role: 'mother', zone: 'b' }, ctx), true);
-  assert.equal(o.ezCanPin({ role: 'mother', zone: 'a' }, ctx), false);
-  assert.equal(o.ezCanPin({ role: 'mother', zone: 'c' }, ctx), false);
+  assert.equal(o.ezCanPin({ role: 'mother', zone: 'a' }, ctx), true);
+  assert.equal(o.ezCanPin({ role: 'mother', zone: 'c' }, ctx), true);
+  assert.equal(o.ezCanPin({ role: 'child', zone: 'c', status: 'approved' }, ctx), true);
   assert.equal(o.ezCanPin({ role: 'child', zone: 'b', status: 'approved' }, ctx), true);
   assert.equal(o.ezCanPin({ role: 'child', zone: 'b', status: 'pending' }, ctx), false);
   assert.equal(o.ezCanPin({ role: 'mother', zone: 'b' }, { isOwner: false }), false);
@@ -62,7 +63,7 @@ test('sign-in popover: anchored next to the cursor on desktop, bottom sheet on p
     const box = d.createElement('div'); box.className = 'ins-modal'; box.innerHTML = '<div class="ins-card wall-otp-card"></div>';
     d.body.appendChild(box);
     WC.ezPlaceBox(box, { x: 5000, y: 5000 });
-    assert.equal(box.classList.contains(phone ? 'sheet' : 'anchored'), true);
+    assert.equal(phone ? box.querySelector('.ins-card').classList.contains('ez-sheet') : box.classList.contains('anchored'), true);
     if (!phone) { const c = box.querySelector('.ins-card'); assert.ok(parseInt(c.style.left) <= w.innerWidth && parseInt(c.style.top) <= w.innerHeight); }
   }
 });

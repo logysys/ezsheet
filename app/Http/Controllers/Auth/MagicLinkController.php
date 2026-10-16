@@ -54,7 +54,9 @@ class MagicLinkController extends Controller
 
             $user = User::where('email', $request->email)->firstOrFail();
 			
-			$redirectUrl = $request->input('redirect_url', route('marketplace') );
+			// EZ-REL-20261016-3: no more open redirect - only a path on this site
+			$redirectUrl = \App\Http\Controllers\SsoHandoffController::safePath(
+                User::localPathOf((string) $request->input('redirect_url', '/marketplace')));
 
             $magicLink = $user->createMagicLink($redirectUrl);
 
@@ -100,13 +102,18 @@ class MagicLinkController extends Controller
 
     public function verify(Request $request, $token)
     {
-        $magicLink = MagicLink::where('token', $token)
-            ->where('expires_at', '>', now())
+        // EZ-REL-20261016-3: tokens are stored hashed (plaintext rows from before the
+        // upgrade still match for their remaining <= 60 minutes). Single use, safe redirect.
+        $token = (string) $token;
+        $magicLink = MagicLink::where('expires_at', '>', now())
+            ->where(fn ($q) => $q->where('token', hash('sha256', $token))->orWhere('token', $token))
             ->firstOrFail();
+        if (MagicLink::whereKey($magicLink->id)->delete() !== 1) abort(404);
 
         Auth::login($magicLink->user);
-		$redirectUrl = $magicLink->redirect_url ?? route('marketplace');
-        $magicLink->delete();
+        $request->session()->regenerate();
+		$redirectUrl = \App\Http\Controllers\SsoHandoffController::safePath(
+            User::localPathOf((string) ($magicLink->redirect_url ?? '/marketplace')));
 		$transaction = TokenTransaction::where('user_id', Auth::id())->where('transaction_type', 'signup_incentive')->first();
 		if(empty($transaction))
 		{
@@ -192,6 +199,6 @@ class MagicLinkController extends Controller
 		
 		}
 		
-        return redirect()->intended($redirectUrl);
+        return redirect($redirectUrl)->header('Referrer-Policy', 'no-referrer');
     }
 }

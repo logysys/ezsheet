@@ -25,7 +25,7 @@ test('hotfix: only small images (or inlined HTML) may fall back to a data: URL; 
   assert.match(PREV, /if\(!fileUrl && !isHtmlFile && !\(type\.indexOf\('image\/'\) === 0 && file\.size <= 2 \* 1024 \* 1024\)\)\{/);
 });
 test('hotfix: homepage fetch sends the same-origin XHR header', () => {
-  assert.match(PREV, /fetch\('\/api\/wall\/upload-ezsheet-file', \{\s*method: 'POST',\s*credentials: 'same-origin',\s*headers: \{ 'Content-Type': 'application\/json', 'X-Requested-With': 'XMLHttpRequest'/);
+  assert.match(PREV, /fetch\('\/api\/wall\/upload-ezsheet-file', \{\s*method: 'POST',\s*credentials: 'same-origin',\s*headers: (?:Object\.assign\()?\{ 'Content-Type': 'application\/json', 'X-Requested-With': 'XMLHttpRequest'/);
 });
 test('hotfix: upload routes are throttled 30/min; .htaccess blocks scripts', () => {
   const api = read('routes/api.php'), web = read('routes/web.php');

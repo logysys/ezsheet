@@ -249,6 +249,9 @@ function DefaultMediaUploadPane({ onAddCards, onUploadingChange }: { onAddCards:
       if (csrfMeta?.content) {
         xhr.setRequestHeader('X-CSRF-TOKEN', csrfMeta.content);
       }
+      // EZ-REL-20261016-3: CSRF is enforced on upload routes for signed-in users
+      const m = document.cookie.match(/(?:^|;\s*)XSRF-TOKEN=([^;]+)/);
+      if (m) xhr.setRequestHeader('X-XSRF-TOKEN', decodeURIComponent(m[1]));
     } catch {}
     xhr.setRequestHeader('X-Requested-With', 'XMLHttpRequest');
 

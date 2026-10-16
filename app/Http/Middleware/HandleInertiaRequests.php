@@ -50,6 +50,13 @@ class HandleInertiaRequests extends Middleware
                 ...(new Ziggy)->toArray(),
                 'location' => $request->url(),
             ],
+            // EZ-REL-20261016-3: cross-domain sign-in (wall "Sign in" goes through ez.wiki)
+            'sso' => [
+                'flagship' => (string) config('fleet.flagship', 'ez.wiki'),
+                'handoff' => (bool) \Illuminate\Support\Facades\Cache::remember(
+                    'fleet.ho.' . \App\Support\HostRegistry::ascii($request->getHost()), 60,
+                    fn () => \App\Support\HostRegistry::handoffAllowed($request->getHost()) ? 1 : 0),
+            ],
             'sidebarOpen' => ! $request->hasCookie('sidebar_state') || $request->cookie('sidebar_state') === 'true',
         ];
     }

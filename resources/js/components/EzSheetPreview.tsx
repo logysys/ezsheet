@@ -55,7 +55,6 @@ interface EzSheetPreviewProps {
   editable?: boolean;
   zones?: { a?: boolean; b?: boolean; c?: boolean };
   zorder?: ('a' | 'b' | 'c')[];
-  fireworks?: boolean;
   flying?: boolean;
   sound?: boolean;
   sprites?: string[];
@@ -212,7 +211,6 @@ body.resizing iframe{pointer-events:none}
 @media (max-width:560px){.za-arrow{width:32px;height:32px;font-size:20px;opacity:.85}}
 .za-track>.item{position:absolute;left:0;top:0;transition:left .6s cubic-bezier(.2,.8,.2,1)}
 @media (prefers-reduced-motion:reduce){.za-track>.item,.zone-a,.za-arrow{transition:none}}
-.fx-layer{position:fixed;left:0;top:0;z-index:8;pointer-events:none}
 .fx-bee{position:fixed;left:0;top:0;z-index:9;pointer-events:none;width:max-content;will-change:transform;filter:drop-shadow(0 8px 14px rgba(0,0,0,.28))}
 .fx-bee{transform-style:preserve-3d}
 .fx-bee img,.fx-bee svg.zdog-svg{display:block;width:150px;height:120px;backface-visibility:visible;overflow:visible;pointer-events:auto;cursor:grab}
@@ -221,7 +219,6 @@ body.resizing iframe{pointer-events:none}
 @media (max-width:560px){.fx-bee img,.fx-bee svg.zdog-svg{width:110px;height:88px}}
 .fx-spark{position:fixed;z-index:8;pointer-events:none;width:16px;height:16px;border-radius:50%;background:var(--yellow);box-shadow:0 0 22px 6px rgba(255,226,122,.9);animation:fxspark 1.2s ease-out forwards}
 @keyframes fxspark{from{transform:scale(1);opacity:.95}to{transform:scale(.2) translateY(18px);opacity:0}}
-@media (prefers-reduced-motion:reduce){.fx-layer,.fx-ship{display:none}}
 .ver-badge{position:fixed;top:10px;right:12px;z-index:75;padding:5px 10px;border:2px solid var(--ink);border-radius:999px;background:rgba(255,255,255,.88);color:var(--ink);font-size:11px;font-weight:900;letter-spacing:.04em;pointer-events:none;box-shadow:0 4px 12px rgba(0,0,0,.12)}
 @media (max-width:420px){.ver-badge{top:auto;bottom:10px;right:8px;font-size:10px;padding:4px 8px;opacity:.85}}
 .empty{padding:40px 16px;text-align:center;opacity:.55;font-weight:800}
@@ -396,6 +393,10 @@ body.shuffling{overflow-x:hidden}
 .globe{background:#fff;border:2.5px solid var(--ink);border-radius:50%;width:36px;height:36px;cursor:pointer;flex:0 0 auto}
 @media (max-width:420px){.globe{display:none}}
 body:not(.is-owner) .globe, body.not-owner .globe, body.guest .globe, body.ro:not(.is-owner) .globe{display:none !important}
+.tool-btn.busy{opacity:.55;cursor:progress;position:relative;padding-right:30px}
+.tool-btn.busy::after{content:'';position:absolute;right:9px;top:50%;width:12px;height:12px;margin-top:-6px;border:2px solid currentColor;border-right-color:transparent;border-radius:50%;animation:ezspin .8s linear infinite}
+@keyframes ezspin{to{transform:rotate(360deg)}}
+@media (prefers-reduced-motion:reduce){.tool-btn.busy::after{animation:none}}
 .toast{position:fixed;left:50%;bottom:24px;transform:translate(-50%,20px);background:var(--ink);color:#fff;padding:10px 16px;border-radius:999px;font-size:12px;font-weight:800;opacity:0;pointer-events:none;transition:opacity .2s,transform .2s;z-index:95;max-width:92vw}
 .toast.show{opacity:1;transform:translate(-50%,0)}
 @media (prefers-reduced-motion:reduce){.toast{transition:none}}
@@ -579,7 +580,6 @@ const EzSheetPreview: React.FC<EzSheetPreviewProps> = ({
   editable = false,
   zones,
   zorder,
-  fireworks,
   flying = true,
   sound,
   sprites,
@@ -684,7 +684,6 @@ const EzSheetPreview: React.FC<EzSheetPreviewProps> = ({
     let detectedZones = zones;
     let detectedZorder = zorder;
     let detectedFx = {
-      fw: !!fireworks,
       fly: flying !== false,
       snd: sound !== false,
     };
@@ -847,7 +846,7 @@ const EzSheetPreview: React.FC<EzSheetPreviewProps> = ({
       editable,
       sprites,
     };
-  }, [cards, fetchedCards, fetchedRev, rev, isOwner, resolvedAuth, content, wallId, slug, lang, cols, car, filter, zones, zorder, fireworks, flying, sound, sprites, editable]);
+  }, [cards, fetchedCards, fetchedRev, rev, isOwner, resolvedAuth, content, wallId, slug, lang, cols, car, filter, zones, zorder, flying, sound, sprites, editable]);
 
   useEffect(() => {
     if (!payload || !iframeRef.current) return;
@@ -1185,8 +1184,9 @@ function parseBatch(text){
 var toastT;
 function toast(m){
   var el=$('toast');if(!el) return;
+  try{ var v=WallCore.ezVisibleView(window); el.style.bottom=(Math.max(0,innerHeight-v.b)+24)+'px'; }catch(e){}
   el.textContent=m;el.classList.add('show');
-  clearTimeout(toastT);toastT=setTimeout(function(){ el.classList.remove('show'); },2800);
+  clearTimeout(toastT);toastT=setTimeout(function(){ el.classList.remove('show'); }, String(m).length > 40 ? 6000 : 2800);
 }
 
 function updateCount(){
@@ -1288,6 +1288,7 @@ function ezApiBase(){
 function ezHeaders(){
   var h = { 'Accept': 'application/json', 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest' };
   try { var t = WallCore.ownerToken ? WallCore.ownerToken() : ''; if(t) h['x-wall-owner'] = t; } catch(e){}
+  try { if (WallCore.csrfHeaders) Object.assign(h, WallCore.csrfHeaders()); } catch(e){}
   return h;
 }
 function setSheet(tagged){
@@ -1342,6 +1343,13 @@ window.openPanel = function(i){
   loadSheet();
 };
 
+/* item 24: the editor panel, toasts and dialogs open inside the VISIBLE part of the (very tall) wall frame */
+(function(){
+  var p=$('panel');if(!p||!window.MutationObserver||!WallCore.ezAnchorPopover) return;
+  var h=null;
+  function sync(){ if(!p.classList.contains('hidden')){ if(!h) h=WallCore.ezAnchorPopover(p,{mode:'top',top:68,dismiss:false,sheet:false}); else h.fit(); } else if(h){ h.close(true); h=null; } }
+  new MutationObserver(sync).observe(p,{attributes:true,attributeFilter:['class']}); sync();
+})();
 window.closePanel = function(){
   var panel=$('panel');if(panel) panel.classList.add('hidden');
 };
@@ -1360,33 +1368,47 @@ function ezDialog(title, lines, buttons){
     row.appendChild(el);
   });
   document.body.appendChild(box);
+  /* item 24: true modal (a decision is needed) - keeps its backdrop, but the box sits in the visible area */
+  try{ WallCore.ezAnchorPopover(box.querySelector('.box'),{mode:'center',dismiss:false,sheet:false}); }catch(e){}
   return box;
 }
 var pushSeq = 0, pushWait = {};
 /* Send one push. Embedded: the parent page (logged-in owner session) posts it and
    answers with __ezsheetPushResult. Standalone: fetch directly. */
+/* item 28: one push at a time; the button is greyed out with a spinner while waiting. */
+var pushBusy = false;
+function pushBtnBusy(on){
+  var btn = $('btnPush'); if(!btn) return;
+  btn.disabled = !!on; btn.classList.toggle('busy', !!on);
+  if(on) btn.setAttribute('aria-busy', 'true'); else btn.removeAttribute('aria-busy');
+}
 function sendPush(body){
-  var btn = $('btnPush'); if(btn) btn.disabled = true;
-  var done = function(status, data){ if(btn) btn.disabled = false; onPushResult(status, data || {}, body); };
+  if(pushBusy){ toast(WallCore.t('pushBusy') !== 'pushBusy' ? WallCore.t('pushBusy') : 'A push is already running…'); return; }
+  pushBusy = true; pushBtnBusy(true);
+  var done = function(status, data){ pushBusy = false; pushBtnBusy(false); onPushResult(status, data || {}, body); };
   if(window.parent && window.parent !== window){
     var rid = 'p' + (++pushSeq) + '_' + Date.now();
     pushWait[rid] = done;
-    setTimeout(function(){ if(pushWait[rid]){ delete pushWait[rid]; done(0, { error: 'timeout' }); } }, 45000);
+    /* the parent aborts after 30 s and always answers; this is only a safety net */
+    setTimeout(function(){ if(pushWait[rid]){ delete pushWait[rid]; done(0, { error: 'timeout' }); } }, 35000);
     try{
       window.parent.postMessage({
         __ezsheetPushToWall: true, requestId: rid,
         __ezsheetRaw: body.raw, raw: body.raw,
         deleteCids: body.delete_cids || [], confirmEmpty: !!body.confirm_empty,
         addCowikiRaws: body.add_cowiki_raws || [],
-        wallId: window.WALL_ID || 'ezsheet', slug: window.WALL_SLUG || window.WALL_ID, messageId: window.MESSAGE_ID || null
+        wallId: window.WALL_ID || 'ezsheet', slug: window.WALL_SLUG || window.WALL_ID, messageId: window.MESSAGE_ID || null,
+        lang: (WallCore.getLang && WallCore.getLang()) || ''
       }, '*');
     }catch(e){ delete pushWait[rid]; done(0, { error: 'postMessage' }); }
     return;
   }
-  fetch(ezApiBase() + '/push-to-wall', { method: 'POST', headers: ezHeaders(), credentials: 'include',
+  var ctl = (typeof AbortController === 'function') ? new AbortController() : null;
+  var tm = setTimeout(function(){ if(ctl) ctl.abort(); }, 30000);
+  fetch(ezApiBase() + '/push-to-wall', { method: 'POST', headers: ezHeaders(), credentials: 'include', signal: ctl ? ctl.signal : undefined,
     body: JSON.stringify({ wall_id: window.WALL_ID, raw: body.raw, delete_cids: body.delete_cids || [], confirm_empty: body.confirm_empty ? 1 : 0, add_cowiki_raws: body.add_cowiki_raws || [] }) })
-    .then(function(r){ return r.json().catch(function(){ return {}; }).then(function(j){ done(r.status, j); }); })
-    .catch(function(){ done(0, { error: 'network' }); });
+    .then(function(r){ clearTimeout(tm); return r.json().catch(function(){ return {}; }).then(function(j){ done(r.status, j); }); })
+    .catch(function(){ clearTimeout(tm); done(0, { error: 'timeout' }); });
 }
 function onPushResult(status, data, body){
   if(status >= 200 && status < 300 && data && Array.isArray(data.cards)){
@@ -1433,6 +1455,10 @@ function onPushResult(status, data, body){
     return;
   }
   if(status === 403){ toast('Only the wall owner can push to this wall.'); return; }
+  /* item 28: plain words for the common failures (the parent page shows the same, in the UI language) */
+  if(status === 419){ toast('Session expired. Please refresh the page and push again.'); return; }
+  if(status === 409 && err === 'busy'){ toast('A push is already running. Please wait.'); return; }
+  if(status === 0){ toast("Server didn't answer. Nothing may have been saved. Please try again."); return; }
   toast('Push failed' + (status ? ' (' + status + ')' : '') + (data && data.message ? ': ' + data.message : ''));
 }
 window.batchImport = function(){
@@ -1511,7 +1537,7 @@ function buildStandalone(){
     zones: currentZones,
     zorder: currentZOrder,
     lang: WallCore.getLang(),
-    fx: WallCore.fxState ? WallCore.fxState() : { fw: false, fly: true, snd: true },
+    fx: WallCore.fxState ? WallCore.fxState() : { fly: true, snd: true },
     filter: true,
     list: list.map(exportItem)
   }).replace(/</g, '\\u003c').replace(/\\u2028/g, '\\u2028').replace(/\\u2029/g, '\\u2029');
@@ -1668,7 +1694,7 @@ if($('fileUpload')){
         var uploadRes = await fetch('/api/wall/upload-ezsheet-file', {
           method: 'POST',
           credentials: 'same-origin',
-          headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest', 'Accept': 'application/json' },
+          headers: Object.assign({ 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest', 'Accept': 'application/json' }, WallCore.csrfHeaders ? WallCore.csrfHeaders() : {}),
           body: JSON.stringify({ filename: name, data: base64Data, mime_type: type })
         });
         if(uploadRes.status === 401){ upDenied = true; window.EZ_AUTHED = false; ezShowSignIn(); }
@@ -2076,6 +2102,8 @@ function startItemUpload(item){
   try {
     var csrfMeta = document.querySelector('meta[name="csrf-token"]');
     if (csrfMeta && csrfMeta.content) xhr.setRequestHeader('X-CSRF-TOKEN', csrfMeta.content);
+    var xs = WallCore.csrfHeaders ? WallCore.csrfHeaders() : {};
+    if (xs['X-XSRF-TOKEN']) xhr.setRequestHeader('X-XSRF-TOKEN', xs['X-XSRF-TOKEN']);
   } catch(e){}
   xhr.setRequestHeader('X-Requested-With', 'XMLHttpRequest');
 

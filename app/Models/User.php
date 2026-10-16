@@ -65,13 +65,30 @@ class User extends Authenticatable
 
     public function createMagicLink($redirectUrl = null)
     {
-        return $this->magicLinks()->create([
-            'token' => \Illuminate\Support\Str::random(64),
-            'expires_at' => now()->addMinutes(config('auth.magic_link.expire', 60)),
-            'redirect_url' => $redirectUrl ?? route('marketplace'), // Default to marketplace
+        // EZ-REL-20261016-3: only the sha256 of the token is stored; the returned model
+        // carries the raw token in memory (->token) for the e-mail link, as before.
+        $raw = \Illuminate\Support\Str::random(64);
+        $link = $this->magicLinks()->create([
+            'token' => hash('sha256', $raw),
+            'expires_at' => now()->addMinutes(min(60, (int) config('auth.magic_link.expire', 60))),
+            'redirect_url' => \App\Http\Controllers\SsoHandoffController::safePath(
+                is_string($redirectUrl) ? self::localPathOf($redirectUrl) : '/marketplace'),
         ]);
+        $link->setAttribute('token', $raw);
+        return $link;
     }
     
+    /** Turns https://<this app host>/path?q into /path?q; anything else becomes '/'. */
+    public static function localPathOf(string $url): string
+    {
+        if ($url === '' || $url[0] === '/') return $url === '' ? '/' : $url;
+        $p = parse_url($url);
+        $host = strtolower($p['host'] ?? '');
+        $own = strtolower((string) parse_url((string) config('app.url'), PHP_URL_HOST));
+        if ($host === '' || ($host !== $own && $host !== strtolower((string) request()->getHost()))) return '/';
+        return ($p['path'] ?? '/') . (isset($p['query']) ? '?' . $p['query'] : '');
+    }
+
     public function sendMagicLinkNotification($url)
     {
         $this->notify(new \App\Notifications\MagicLinkNotification($url));

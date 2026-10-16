@@ -63,99 +63,6 @@ Route::domain('oki.wiki')->middleware('web')->group(function () {
         Route::get('/', [HomeController::class, 'oki'])->name('oki');
     });
 
-Route::domain('{subdomain}.ez3d.ai')->group(function ($subdomain) {
-    Route::get('/',[WelcomeController::class, 'domainfunnel'])->name('domainfunnel')->middleware('track.visitor');
-});
-Route::domain('{subdomain}.xn--hny691d.com')->group(function ($subdomain) {
-    Route::get('/',[WelcomeController::class, 'domainfunnel'])->name('domainfunnel')->middleware('track.visitor');
-});
-Route::domain('{subdomain}.xn--b9wm4lxz0afud.com')->group(function ($subdomain) {
-    Route::get('/',[WelcomeController::class, 'domainfunnel'])->name('domainfunnel')->middleware('track.visitor');
-});
-Route::domain('{subdomain}.xn--h0t795as2et56a.com')->group(function ($subdomain) {
-    Route::get('/',[WelcomeController::class, 'domainfunnel'])->name('domainfunnel')->middleware('track.visitor');
-});
-Route::domain('{subdomain}.set.net')->group(function ($subdomain) {
-    Route::get('/',[WelcomeController::class, 'domainfunnel'])->name('domainfunnel')->middleware('track.visitor');
-});
-Route::domain('{subdomain}.opensoothing.com')->group(function ($subdomain) {
-    Route::get('/',[WelcomeController::class, 'domainfunnel'])->name('domainfunnel')->middleware('track.visitor');
-});
-Route::domain('{subdomain}.0932.com')->group(function ($subdomain) {
-    Route::get('/',[WelcomeController::class, 'domainfunnel'])->name('domainfunnel')->middleware('track.visitor');
-});
-Route::domain('{subdomain}.0938.com')->group(function ($subdomain) {
-    Route::get('/',[WelcomeController::class, 'domainfunnel'])->name('domainfunnel')->middleware('track.visitor');
-});
-Route::domain('{subdomain}.xn--42c5bb7ah3d5byb6m.com')->group(function ($subdomain) {
-    Route::get('/',[WelcomeController::class, 'domainfunnel'])->name('domainfunnel')->middleware('track.visitor');
-});
-Route::domain('{subdomain}.xn--22c0cud.com')->group(function ($subdomain) {
-    Route::get('/',[WelcomeController::class, 'domainfunnel'])->name('domainfunnel')->middleware('track.visitor');
-});
-Route::domain('{subdomain}.xn--ll0b110a.love')->group(function ($subdomain) {
-    Route::get('/',[WelcomeController::class, 'domainfunnel'])->name('domainfunnel')->middleware('track.visitor');
-});
-Route::domain('{subdomain}.xn--rht090b.wiki')->group(function ($subdomain) {
-    Route::get('/',[WelcomeController::class, 'domainfunnel'])->name('domainfunnel')->middleware('track.visitor');
-});
-Route::domain('{subdomain}.4u.wiki')->group(function ($subdomain) {
-    Route::get('/',[WelcomeController::class, 'domainfunnel'])->name('domainfunnel')->middleware('track.visitor');
-});
-Route::domain('{subdomain}.b2c.wiki')->group(function ($subdomain) {
-    Route::get('/',[WelcomeController::class, 'domainfunnel'])->name('domainfunnel')->middleware('track.visitor');
-});
-Route::domain('{subdomain}.no1.wiki')->group(function ($subdomain) {
-    Route::get('/',[WelcomeController::class, 'domainfunnel'])->name('domainfunnel')->middleware('track.visitor');
-});
-Route::domain('{subdomain}.ez.wiki')->group(function ($subdomain) {
-    Route::get('/',[WelcomeController::class, 'domainfunnel'])->name('domainfunnel')->middleware('track.visitor');
-});
-Route::domain('{subdomain}.ez3d.wiki')->group(function ($subdomain) {
-    Route::get('/',[WelcomeController::class, 'domainfunnel'])->name('domainfunnel')->middleware('track.visitor');
-});
-Route::domain('{subdomain}.81.wiki')->group(function ($subdomain) {
-    Route::get('/',[WelcomeController::class, 'domainfunnel'])->name('domainfunnel')->middleware('track.visitor');
-});
-Route::domain('{subdomain}.82.wiki')->group(function ($subdomain) {
-    Route::get('/',[WelcomeController::class, 'domainfunnel'])->name('domainfunnel')->middleware('track.visitor');
-});
-Route::domain('{subdomain}.7.wiki')->group(function ($subdomain) {
-    Route::get('/',[WelcomeController::class, 'domainfunnel'])->name('domainfunnel')->middleware('track.visitor');
-});
-Route::domain('{subdomain}.big.wiki')->group(function ($subdomain) {
-    Route::get('/',[WelcomeController::class, 'domainfunnel'])->name('domainfunnel')->middleware('track.visitor');
-});
-Route::domain('{subdomain}.xn--fiq228c.wiki')->group(function ($subdomain) {
-    Route::get('/',[WelcomeController::class, 'domainfunnel'])->name('domainfunnel')->middleware('track.visitor');
-});
-Route::domain('{subdomain}.xn--kpry57d.wiki')->group(function ($subdomain) {
-    Route::get('/',[WelcomeController::class, 'domainfunnel'])->name('domainfunnel')->middleware('track.visitor');
-});
-Route::domain('{subdomain}.bbcc.ai')->group(function ($subdomain) {
-    Route::get('/',[WelcomeController::class, 'domainfunnel'])->name('domainfunnel')->middleware('track.visitor');
-});
-Route::domain('{subdomain}.bbcc.ad')->group(function ($subdomain) {
-    Route::get('/',[WelcomeController::class, 'domainfunnel'])->name('domainfunnel')->middleware('track.visitor');
-});
-Route::domain('{subdomain}.xn--fiq228cj5lj9c.com')->group(function ($subdomain) {
-    Route::get('/',[WelcomeController::class, 'domainfunnel'])->name('domainfunnel')->middleware('track.visitor');
-});
-Route::domain('{subdomain}.oki.wiki')->group(function ($subdomain) {
-    Route::get('/',[WelcomeController::class, 'domainfunnel'])->name('domainfunnel')->middleware('track.visitor');
-});
-Route::domain('{subdomain}.xn--2rq38u.com')->group(function ($subdomain) {
-    Route::get('/',[WelcomeController::class, 'domainfunnel'])->name('domainfunnel')->middleware('track.visitor');
-});
-Route::domain('{subdomain}.blaig.chat')->group(function ($subdomain) {
-    Route::get('/',[WelcomeController::class, 'domainfunnel'])->name('domainfunnel')->middleware('track.visitor');
-});
-Route::domain('{subdomain}.blaig.wiki')->group(function ($subdomain) {
-    Route::get('/',[WelcomeController::class, 'domainfunnel'])->name('domainfunnel')->middleware('track.visitor');
-});
-Route::domain('{subdomain}.whowhat.wiki')->group(function ($subdomain) {
-    Route::get('/',[WelcomeController::class, 'domainfunnel'])->name('domainfunnel')->middleware('track.visitor');
-});
 
 Route::domain('genesis.nug8.com')->group(function ($subdomain) {
     Route::get('/',[WelcomeController::class, 'genesis'])->name('genesis');
@@ -311,9 +218,31 @@ Route::domain('a19.nug8.com')->group(function ($subdomain) {
 	})->name('a19');
 });
 Route::domain('{subdomain}.nug8.com')->group(function ($subdomain) {
-    Route::get('/',[WelcomeController::class, 'domainfunnel'])->name('domainfunnel')->middleware('track.visitor');
     Route::get('/ez-uri-v0.0-provisional.html',[WelcomeController::class, 'provisional'])->name('provisional');
 });
+
+/*
+| EZ-REL-20261016-3 — ONE registry-driven catch-all for the fleet.
+| Replaces the 32 hard-coded Route::domain('{subdomain}.<domain>') groups.
+| Hosts come from table `admindomains` (cached 5 min, flushed when a row is saved),
+| with config/fleet.php as the fallback, so a missing row never takes a host offline.
+| Registered AFTER the fixed mini-app hosts above (they keep their own groups) and
+| BEFORE the generic '/' below. App hosts (ez.wiki, www.ez.wiki, APP_URL host,
+| FLEET_APP_HOSTS) never match here and keep the normal app.
+| New domain = DNS + certificate + nginx + one admindomains row. No code change.
+*/
+$fleetAppHosts = implode('|', array_map(fn ($h) => preg_quote(strtolower($h), '#'), (array) config('fleet.app_hosts', [])));
+Route::domain('{fleethost}')->where(['fleethost' => '(?!(?:' . ($fleetAppHosts ?: 'ez\\.wiki') . ')$)[A-Za-z0-9.-]+'])->group(function () {
+    Route::get('/', [\App\Http\Controllers\FleetHostController::class, 'home'])
+        ->name('domainfunnel')->middleware(['track.visitor', \App\Http\Middleware\SsoSilentCheck::class]);
+    Route::get('/login', [\App\Http\Controllers\SsoHandoffController::class, 'login'])->middleware('throttle:30,1');
+});
+
+// EZ-REL-20261016-3 — cross-domain sign-in handoff + logout everywhere
+Route::get('/auth/handoff', [\App\Http\Controllers\SsoHandoffController::class, 'start'])->middleware('throttle:30,1')->name('sso.handoff');
+Route::get('/auth/handoff/claim', [\App\Http\Controllers\SsoHandoffController::class, 'claimPage'])->middleware('throttle:30,1')->name('sso.claim.page');
+Route::post('/auth/handoff/claim', [\App\Http\Controllers\SsoHandoffController::class, 'claim'])->middleware('throttle:30,1')->name('sso.claim');
+Route::post('/auth/logout-everywhere', [\App\Http\Controllers\SsoHandoffController::class, 'logoutEverywhere'])->middleware(['auth', 'throttle:10,1'])->name('sso.logout-everywhere');
 
 Route::get('/', [WelcomeController::class, 'index'])->name('home');
 Route::get('/aihome', [WelcomeController::class, 'aihome'])->name('aihome');

@@ -33,9 +33,11 @@ Route::middleware('guest')->group(function () {
 
     Route::post('reset-password', [NewPasswordController::class, 'store'])
         ->name('password.store');
+	// EZ-REL-20261016-3: old magic link LOCKED DOWN (still used by the purchase/sign-up emails):
+	// tokens stored as sha256 only, redirect limited to local paths, session regenerated, CSRF on send.
 	Route::get('/login/magic-link', [MagicLinkController::class, 'show'])->name('magic-link.show');
-	Route::post('/login/magic-link', [MagicLinkController::class, 'send'])->name('magic-link.send');
-	Route::get('/login/magic-link/{token}', [MagicLinkController::class, 'verify'])->name('magic-link.verify')->middleware('signed');
+	Route::post('/login/magic-link', [MagicLinkController::class, 'send'])->name('magic-link.send')->middleware('throttle:5,10');
+	Route::get('/login/magic-link/{token}', [MagicLinkController::class, 'verify'])->name('magic-link.verify')->middleware(['signed', 'throttle:30,1']);
 });
 
 Route::middleware('auth')->group(function () {
