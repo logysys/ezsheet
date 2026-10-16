@@ -24,7 +24,7 @@ class StrictCsrfForSessionRoutes extends Base
 {
     public const ALWAYS = [
         'auth/handoff/*', 'auth/logout-everywhere',
-        'api/wall/auth/*', 'login/magic-link',
+        'api/wall/auth/*', 'wall/auth/*', 'login/magic-link',   // -7: wall/auth/* is on every host now
     ];
 
     public const SESSION = [
