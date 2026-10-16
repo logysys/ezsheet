@@ -1740,7 +1740,8 @@ export default function AISearchView({
     };
 
     const copyToClipboard = () => {
-        navigator.clipboard.writeText(share_url);
+        const currentUrl = typeof window !== 'undefined' ? window.location.href.split('#')[0] : share_url;
+        navigator.clipboard.writeText(currentUrl);
         setIsCopied(true);
 
         setTimeout(() => {
@@ -7455,7 +7456,7 @@ export default function AISearchView({
                 isOpen={showShareModal}
                 onClose={() => setShowShareModal(false)}
                 slug={search.slug}
-                url={share_url || (typeof window !== 'undefined' ? `${window.location.origin}/X/${encodeURIComponent(search.slug)}` : '')}
+                url={typeof window !== 'undefined' ? window.location.href.split('#')[0] : (share_url || '')}
                 title={search.conversation_title || search.query || 'Ez.wiki AI Search'}
                 description={search.query || ''}
                 initialTab={shareModalTab}
