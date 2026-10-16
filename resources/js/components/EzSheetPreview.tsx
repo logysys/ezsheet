@@ -64,6 +64,7 @@ interface EzSheetPreviewProps {
   auth?: { user?: any };
   isOwner?: boolean;
   slug?: string;
+  funnel?: string;
   messageId?: number;
   domains?: Array<{ domain?: string } | string>;
   onItemsChange?: (items: EzSheetItem[]) => void;
@@ -589,6 +590,7 @@ const EzSheetPreview: React.FC<EzSheetPreviewProps> = ({
   auth,
   isOwner = false,
   slug,
+  funnel,
   messageId,
   domains,
   onItemsChange,
@@ -677,6 +679,7 @@ const EzSheetPreview: React.FC<EzSheetPreviewProps> = ({
       }
       return slug || '';
     })();
+    const resolvedFunnel = funnel || (typeof window !== 'undefined' && (window as any).__EZ_FUNNEL) || '';
     let detectedCols = typeof cols === 'number' ? cols : undefined;
     let detectedCar = typeof car === 'boolean' ? car : undefined;
     let detectedFilter: boolean | undefined = typeof filter === 'boolean' ? filter : undefined;
@@ -832,6 +835,7 @@ const EzSheetPreview: React.FC<EzSheetPreviewProps> = ({
     return {
       id: detectedId,
       slug: (resolvedSlug && resolvedSlug !== 'ezsheet') ? resolvedSlug : undefined,
+      funnel: (resolvedFunnel && resolvedFunnel !== 'ezsheet') ? resolvedFunnel : undefined,
       cols: detectedCols !== undefined ? detectedCols : 0,
       car: detectedCar === true,
       lang: detectedLang,
@@ -846,7 +850,7 @@ const EzSheetPreview: React.FC<EzSheetPreviewProps> = ({
       editable,
       sprites,
     };
-  }, [cards, fetchedCards, fetchedRev, rev, isOwner, resolvedAuth, content, wallId, slug, lang, cols, car, filter, zones, zorder, flying, sound, sprites, editable]);
+  }, [cards, fetchedCards, fetchedRev, rev, isOwner, resolvedAuth, content, wallId, slug, funnel, lang, cols, car, filter, zones, zorder, flying, sound, sprites, editable]);
 
   useEffect(() => {
     if (!payload || !iframeRef.current) return;
@@ -909,7 +913,7 @@ if(typeof window !== 'undefined' && typeof Zdog === 'undefined' && window.Zdog){
 </head>
 <body class="${editable ? 'edit' : 'ro'}${isOwner ? ' is-owner' : ' not-owner'}">
 <div id="panel" class="import-panel hidden">
-<div style="display:flex;justify-content:space-between"><b>V620.01 <span data-i18n="title">Wall editor</span> - <span id="idDisplay2">${payload.slug || payload.id || '一起維基'}</span></b><button onclick="closePanel()" class="tool-btn" data-i18n-aria="close">✕</button></div>
+<div style="display:flex;justify-content:space-between"><b>V620.01 <span data-i18n="title">Wall editor</span> - <span id="idDisplay2">${payload.funnel || payload.slug || payload.id || '一起維基'}</span></b><button onclick="closePanel()" class="tool-btn" data-i18n-aria="close">✕</button></div>
 
 <div class="toolbar">
 <label class="tool-btn" style="background:#e3f2fd" onclick="var f=document.getElementById('fileUpload'); if(f && event.target!==f) f.click();"><input type="file" id="fileUpload" accept="image/*,video/*,audio/*,.pdf,.html,.htm,.json,.txt,application/pdf,text/html" multiple hidden>📥 <span data-i18n="upload">Upload</span></label>
@@ -995,6 +999,7 @@ window.isOwner = ${JSON.stringify(!!isOwner)};
 window.WALL_ORIGIN = ${JSON.stringify(parentOrigin)};
 window.WALL_DOMAINS = ${JSON.stringify(resolvedDomains)};
 window.WALL_ID = ${JSON.stringify(wallId)};
+window.WALL_FUNNEL = ${JSON.stringify(payload.funnel || funnel || '')};
 window.WALL_SLUG = ${JSON.stringify(payload.slug || slug || wallId || '')};
 window.MESSAGE_ID = ${JSON.stringify(messageId || null)};
 try{WallCore.setWallSync(${JSON.stringify(effectiveSyncUrl)});}catch(e){}
@@ -2281,7 +2286,7 @@ if($('copyBtn')) $('copyBtn').addEventListener('click', copyFullHTML);
 if($('dlBtn')) $('dlBtn').addEventListener('click', downloadStandalone);
 if($('btnDownloadJSON')) $('btnDownloadJSON').addEventListener('click', downloadSheet);
 if($('btnClearWall')) $('btnClearWall').addEventListener('click', clearWall);
-var displayToken = (window.WALL_SLUG && window.WALL_SLUG !== 'ezsheet') ? window.WALL_SLUG : '';
+var displayToken = window.WALL_FUNNEL || ((window.WALL_SLUG && window.WALL_SLUG !== 'ezsheet') ? window.WALL_SLUG : '');
 if(!displayToken){
   try {
     var pPath = (window.parent && window.parent.location) ? window.parent.location.pathname : (window.location ? window.location.pathname : '');

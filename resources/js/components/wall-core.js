@@ -2502,7 +2502,7 @@ function bootReadonly(){
   const byId=new Map(items.map(o=>[o._id,o]));
   const id=String(d.id||'');
   const wallId=id||'default';
-  let token=String(d.slug||d.token||(typeof window!=='undefined'&&(window.WALL_SLUG||window.FUNNEL_TOKEN))||'');
+  let token=String(d.funnel||(typeof window!=='undefined'&&window.WALL_FUNNEL)||d.slug||d.token||(typeof window!=='undefined'&&(window.WALL_SLUG||window.FUNNEL_TOKEN))||'');
   if(!token || token === 'ezsheet'){
     try {
       const pPath=(typeof window!=='undefined'&&window.parent&&window.parent.location)?window.parent.location.pathname:(typeof location!=='undefined'?location.pathname:'');
@@ -2514,7 +2514,7 @@ function bootReadonly(){
       }
     } catch(e){}
   }
-  const displayToken=(token&&token!=='ezsheet')?token:(id||'Wall');
+  const displayToken=d.funnel||(typeof window!=='undefined'&&window.WALL_FUNNEL)||((token&&token!=='ezsheet')?token:(id||'Wall'));
   /* 作者匯出時的欄位設定是預設值；沒有欄位就用原始版面 */
   const authorMode=validCols(d.cols)&&d.cols>0?d.cols:-1;
   const VKEY='wall_view_'+(id||'default');
