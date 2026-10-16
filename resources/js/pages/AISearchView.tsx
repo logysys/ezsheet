@@ -279,6 +279,7 @@ interface AiSettings {
 }
 
 interface PageProps {
+    funnel?: string;
     search: SearchData;
     conversation_messages: ConversationMessage[];
     message_count: number;
@@ -765,6 +766,7 @@ const StripeCheckoutForm = ({
 };
 
 export default function AISearchView({
+    funnel,
     search,
     conversation_messages,
     message_count,
@@ -3608,6 +3610,7 @@ export default function AISearchView({
                         title="EzSheet Preview"
                         wallId={wallId}
                         slug={message.slug}
+                        funnel={funnel || (message as any)?.funnel || (search as any)?.funnel}
                         messageId={message.id}
                         autoHeight={true}
                         frameless={true}
@@ -4380,6 +4383,7 @@ export default function AISearchView({
                                                     title="EzSheet Preview"
                                                     wallId={commentWallId}
                                                     slug={c.message_slug || message.slug}
+                                                    funnel={funnel || (c as any)?.funnel || (message as any)?.funnel || (search as any)?.funnel}
                                                     messageId={c.id || message.id}
                                                     autoHeight={true}
                                                     frameless={true}
