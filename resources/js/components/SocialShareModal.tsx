@@ -67,12 +67,17 @@ export const SocialShareModal: React.FC<SocialShareModalProps> = ({
         }
     }, [isOpen, initialTab]);
 
-    // Compute canonical share URL
-    const canonicalUrl = url || (slug 
+    // Compute canonical share / embed URL:
+    // ALWAYS prioritize the actual URL showing in the browser address bar!
+    const browserUrl = typeof window !== 'undefined' && window.location && window.location.href
+        ? window.location.href.split('#')[0]
+        : '';
+    const canonicalUrl = browserUrl || url || (slug 
         ? `${typeof window !== 'undefined' ? window.location.origin : ''}/X/${encodeURIComponent(slug)}`
         : (typeof window !== 'undefined' ? window.location.href : ''));
 
-    const displaySlug = slug || (canonicalUrl.split('/X/')[1] ? decodeURIComponent(canonicalUrl.split('/X/')[1]) : '');
+    const browserPath = typeof window !== 'undefined' && window.location ? window.location.pathname.replace(/^\/+/, '') : '';
+    const displaySlug = browserPath || slug || (canonicalUrl.split('/X/')[1] ? decodeURIComponent(canonicalUrl.split('/X/')[1]) : '');
 
     // Formatted share text for social platforms
     const shareText = description ? `${title} - ${description.slice(0, 100)}` : title;
@@ -264,7 +269,7 @@ export const SocialShareModal: React.FC<SocialShareModalProps> = ({
                                     <p className="text-xs text-gray-500 font-mono mt-0.5 flex items-center gap-1">
                                         <span>Slug:</span>
                                         <span className="font-semibold text-emerald-600 bg-emerald-50 px-1.5 py-0.5 rounded text-[11px]">
-                                            X/{displaySlug}
+                                            {displaySlug}
                                         </span>
                                     </p>
                                 )}
