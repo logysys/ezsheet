@@ -1124,7 +1124,7 @@ export default function Welcome({
     const [geoslugSuccess, setGeoslugSuccess] = useState<string | null>(null);
     const [geoslugRedirecting, setGeoslugRedirecting] = useState(false);
 
-    const [contentFormat, setContentFormat] = useState<'markdown' | 'html' | 'ezsheet'>('markdown');
+    const [contentFormat, setContentFormat] = useState<'markdown' | 'html' | 'ezsheet'>('ezsheet');
 
     // NEW STATE for the embed builder modal
     const [isEmbedModalOpen, setIsEmbedModalOpen] = useState(false);
@@ -2165,16 +2165,9 @@ export default function Welcome({
     const renderContentPanel = () => {
         return (
             <div className="space-y-4">
-                {/* Content Composer Toolbar - From Image 1, 2 & 3 */}
                 <div className="border border-gray-200 rounded-xl p-4 bg-white">
-                    {renderContentComposerToolbar()}
-                    
-                    {/* Composer body */}
-                    <div className="mt-3">
-                        {contentSubTab === 'composer' && renderSocialPanel()}
-                        {contentSubTab === 'upload' && renderUploadDropZone()}
-                        {contentSubTab === 'embed' && renderCommentsSection()}
-                        {contentSubTab === 'geoslug' && renderGeoslugSection()}
+                    <div className="mt-1">
+                        {renderSocialPanel()}
                     </div>
                 </div>
             </div>
@@ -4649,13 +4642,13 @@ export default function Welcome({
                                     >
                                         <TabIcon 
                                             icon={
-                                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                                                     <rect x="3" y="3" width="18" height="18" rx="2" ry="2"/>
-                                                    <line x1="9" y1="9" x2="15" y2="15"/>
-                                                    <line x1="15" y1="9" x2="9" y2="15"/>
+                                                    <line x1="3" y1="9" x2="21" y2="9"/>
+                                                    <line x1="9" y1="21" x2="9" y2="9"/>
                                                 </svg>
                                             }
-                                            label="Social & Upload"
+                                            label="EzSheet"
                                             count={uploadedFiles.length + comments.length}
                                             locked={!canInteract}
                                             active={activeTab === 'content'}
