@@ -162,6 +162,15 @@ Route::prefix('wall/auth')->group(function () {
     Route::get('me', [\App\Http\Controllers\Api\WallController::class, 'authMe'])->name('wall.auth.me');
 });
 
+// EZ-LOCK-20261017 P2: unlock a private slug (email code / magic link, owner password, request password)
+Route::prefix('slug-unlock')->name('slug.unlock.')->group(function () {
+    Route::post('email/send', [\App\Http\Controllers\SlugUnlockController::class, 'sendEmail'])->name('email.send')->middleware('throttle:20,1');
+    Route::post('email/verify', [\App\Http\Controllers\SlugUnlockController::class, 'verifyEmail'])->name('email.verify')->middleware('throttle:30,1');
+    Route::get('email/{token}', [\App\Http\Controllers\SlugUnlockController::class, 'consumeEmail'])->name('email.consume')->middleware('throttle:30,1');
+    Route::post('password', [\App\Http\Controllers\SlugUnlockController::class, 'password'])->name('password')->middleware('throttle:30,1');
+    Route::post('request-password', [\App\Http\Controllers\SlugUnlockController::class, 'requestPassword'])->name('request-password')->middleware('throttle:10,1');
+});
+
 Route::prefix('api/wall')->middleware(['web', 'throttle:120,1'])->group(function () {   // -7: now on every host (session + CSRF); same throttle as routes/api.php
     Route::post('auth/send-otp', [\App\Http\Controllers\MagicLinkController::class, 'send']);
     Route::post('auth/verify-otp', [\App\Http\Controllers\MagicLinkController::class, 'verify']);
@@ -577,6 +586,14 @@ Route::middleware(['auth', 'verified'])->group(function () {
             ->middleware('throttle:30,1');
         Route::patch('/conversation/{conversationId}/private-settings', [AIHistoryController::class, 'updatePrivateSettings'])
             ->name('conversation.update-private-settings')
+            ->middleware('throttle:30,1');
+        // EZ-LOCK-20261017 P2: "Request password" inbox for the owner
+        Route::get('/conversation/{conversationId}/password-requests', [\App\Http\Controllers\SlugUnlockController::class, 'listPasswordRequests'])
+            ->name('conversation.password-requests')
+            ->middleware('throttle:30,1');
+        Route::patch('/conversation/{conversationId}/password-requests/{requestId}', [\App\Http\Controllers\SlugUnlockController::class, 'updatePasswordRequest'])
+            ->whereNumber('requestId')
+            ->name('conversation.password-requests.update')
             ->middleware('throttle:30,1');
 
         // AI User Settings Routes - Updated to use the correct paths

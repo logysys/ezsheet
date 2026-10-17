@@ -25,11 +25,15 @@ class StrictCsrfForSessionRoutes extends Base
     public const ALWAYS = [
         'auth/handoff/*', 'auth/logout-everywhere',
         'api/wall/auth/*', 'wall/auth/*', 'login/magic-link',   // -7: wall/auth/* is on every host now
+        'slug-unlock/*',   // EZ-LOCK-20261017: private-slug unlock (no forced / fixated unlock sessions)
     ];
 
     public const SESSION = [
         'api/wall/*', 'wall/*', 'content/upload', 'content/wiki/upload-file',
         'content/update-upload',
+        // EZ-LOCK-20261017: owner slug settings (status toggle, private settings, slug, title ...).
+        // Without this a cross-site form could flip a signed-in owner's private slug to public.
+        'ai/conversation/*', 'ai/message/*',
     ];
 
     protected $except = [];

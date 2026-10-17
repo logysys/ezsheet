@@ -9,6 +9,7 @@ use App\Models\EzFunnelField;
 use App\Models\EzFunnel;
 use App\Models\Customdomain;
 use App\Models\Domain;
+use App\Support\SlugAccess;
 use Illuminate\Http\Response;
 
 class SitemapController extends Controller
@@ -34,10 +35,16 @@ class SitemapController extends Controller
         ];
 		$wiki=WikiPage::where('status','published')->get();
 		$template=Template::get();
-		$ezfunnelfield=EzFunnelField::get();
-		$ezfunnel=EzFunnel::get();
-		$customdomain=Customdomain::get();
-		$domain=Domain::get();
+		// EZ-LOCK-20261017 P0-8: never list a handle / card / custom domain / subdomain that shows a
+		// private or hidden slug (was: every row, so private X0000000 handles were listed on every domain).
+		$privateFunnels = SlugAccess::nonPublicFunnelIds();
+		$ezfunnelfield = SlugAccess::whereNotInOrNull(EzFunnelField::query(), 'ez_funnel_id', $privateFunnels)->get();
+		$ezfunnel = SlugAccess::whereNotInOrNull(EzFunnel::query(), 'aiid', SlugAccess::nonPublicMessageIds())->get();
+		$customdomain = SlugAccess::whereNotInOrNull(
+			SlugAccess::whereNotInOrNull(Customdomain::query(), 'funnelid', SlugAccess::nonPublicFunnelIds()),
+			'aiid', SlugAccess::nonPublicMessageIds()
+		)->get();
+		$domain = SlugAccess::whereNotInOrNull(Domain::query(), 'funnelid', SlugAccess::nonPublicFunnelIds())->get();
         $content = view('sitemap', [
 			'admindomain' => $admindomain,
             'staticUrls' => $staticUrls,
@@ -49,7 +56,8 @@ class SitemapController extends Controller
 			'domain' => $domain,
         ])->render();
 
-        return response($content, 200)->header('Content-Type', 'text/xml');
+        // short cache so a slug made private drops out quickly
+        return response($content, 200)->header('Content-Type', 'text/xml')->header('Cache-Control', 'public, max-age=300');
     }
 	
 }

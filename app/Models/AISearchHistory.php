@@ -131,6 +131,9 @@ class AISearchHistory extends Model
     protected $hidden = [
         'ip_address',
         'user_agent',
+        // EZ-LOCK-20261017: never serialise unlock secrets (models reach Inertia props / JSON in many places)
+        'private_access_number',
+        'unlock_password_hash',
     ];
     
     /**

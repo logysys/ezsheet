@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\EzFunnel;
+use App\Support\SlugAccess;
 use App\Models\EzFunnelField;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
@@ -926,9 +927,18 @@ class WelcomeController extends Controller
             return redirect('/')->with('error', 'AI search not found');
         }
         
+        // EZ-LOCK-20261017 P0-3 / P0-10: handle (X0000000), custom-domain and fleet-subdomain views of
+        // a slug use the same rule as /X/{slug}: decide BEFORE any prop is built; unauthorised viewers
+        // get 404 (or the lock screen) without title, ids, owner, timestamps or SEO meta.
+        $root = SlugAccess::root($search);
+        if (!SlugAccess::canView($root)) {
+            return SlugAccess::deny(request(), $root, (string) $funnel->token);
+        }
+        $isNonPublic = !SlugAccess::isPublic($root);
+
         // Get the first message to check conversation status
-        $firstMessage = $search->getFirstMessage();
-        $conversationStatus = $firstMessage ? $firstMessage->status : $search->status;
+        $firstMessage = $root;
+        $conversationStatus = $firstMessage->status ?: $search->status;
         
         // Check if guests can view this conversation
         $guestsAllowed = $this->canGuestsInteract($firstMessage);
@@ -937,15 +947,11 @@ class WelcomeController extends Controller
         $guestInteractionDisabled = false;
         $requiresLogin = false;
         
-        // Check if user has private access session (no expiry)
-        $hasPrivateAccess = false;
-        $sessionData = session('private_access_' . $firstMessage->conversation_id);
-        if (!is_null($sessionData) && isset($sessionData['token'])) {
-            $hasPrivateAccess = true;
-        }
+        // Valid v2 unlock grant only (epoch, expiry, method still on)
+        $hasPrivateAccess = $isNonPublic && SlugAccess::hasGrant($root);
         
         // If conversation is private and user has private access session, allow viewing
-        $isOwner = Auth::check() && $firstMessage && $firstMessage->user_id === Auth::id();
+        $isOwner = SlugAccess::isOwner($root);
         $hasViewAccess = false;
         
         if ($conversationStatus === 'private') {
@@ -1030,7 +1036,7 @@ class WelcomeController extends Controller
             ->toArray();
         
         if (request()->expectsJson()) {
-            return response()->json([
+            $json = response()->json([
                 'success' => true,
                 'data' => [
                     'id' => $search->id,
@@ -1088,6 +1094,7 @@ class WelcomeController extends Controller
                 'requires_login' => $requiresLogin,
                 'has_private_access' => $hasPrivateAccess,
             ]);
+            return $isNonPublic ? SlugAccess::privatize($json) : $json;
         }
         
         $dayOfWeek = strtolower(Carbon::now()->format('D'));
@@ -1138,7 +1145,16 @@ class WelcomeController extends Controller
 			}
 			$token = $funnel->token;
 		}
-        return Inertia::render('AISearchView', [
+		if ($isNonPublic) {
+			// EZ-LOCK-20261017 P0-6: never put the owner's SEO title/description/logo on a private page
+			$metaTitle = 'ez.wiki';
+			$metaDescription = '';
+			$metaKeywords = '';
+			$metaSiteUrl = url()->current();
+			$metaSiteName = 'ez.wiki';
+			$metaLogo = 'https://ez.wiki/ezlogo.png';
+		}
+        $page = Inertia::render('AISearchView', [
 			'funnel' => $token,
             'tokenInfo' => $tokenInfo,
             'domains' => $domains,
@@ -1206,8 +1222,11 @@ class WelcomeController extends Controller
 					'sitename' => $metaSiteName,
 					'metalogo' => $metaLogo
 				],
-				'favicon' => $favicon
+				'favicon' => $favicon,
+				'noindex' => $isNonPublic,
 			]);
+        // P0-7/P0-11: authorised views of a private slug are never cached or indexed
+        return $isNonPublic ? SlugAccess::privatize($page->toResponse(request())) : $page;
 		}
 	}
     $eyeTracking = $funnel ? $funnel->eye_tracking : 0;
@@ -3606,9 +3625,18 @@ public function storelikedislike(Request $request)
             return redirect('/')->with('error', 'AI search not found');
         }
         
+        // EZ-LOCK-20261017 P0-3 / P0-10: handle (X0000000), custom-domain and fleet-subdomain views of
+        // a slug use the same rule as /X/{slug}: decide BEFORE any prop is built; unauthorised viewers
+        // get 404 (or the lock screen) without title, ids, owner, timestamps or SEO meta.
+        $root = SlugAccess::root($search);
+        if (!SlugAccess::canView($root)) {
+            return SlugAccess::deny(request(), $root, (string) $funnel->token);
+        }
+        $isNonPublic = !SlugAccess::isPublic($root);
+
         // Get the first message to check conversation status
-        $firstMessage = $search->getFirstMessage();
-        $conversationStatus = $firstMessage ? $firstMessage->status : $search->status;
+        $firstMessage = $root;
+        $conversationStatus = $firstMessage->status ?: $search->status;
         
         // Check if guests can view this conversation
         $guestsAllowed = $this->canGuestsInteract($firstMessage);
@@ -3617,15 +3645,11 @@ public function storelikedislike(Request $request)
         $guestInteractionDisabled = false;
         $requiresLogin = false;
         
-        // Check if user has private access session (no expiry)
-        $hasPrivateAccess = false;
-        $sessionData = session('private_access_' . $firstMessage->conversation_id);
-        if (!is_null($sessionData) && isset($sessionData['token'])) {
-            $hasPrivateAccess = true;
-        }
+        // Valid v2 unlock grant only (epoch, expiry, method still on)
+        $hasPrivateAccess = $isNonPublic && SlugAccess::hasGrant($root);
         
         // If conversation is private and user has private access session, allow viewing
-        $isOwner = Auth::check() && $firstMessage && $firstMessage->user_id === Auth::id();
+        $isOwner = SlugAccess::isOwner($root);
         $hasViewAccess = false;
         
         if ($conversationStatus === 'private') {
@@ -3710,7 +3734,7 @@ public function storelikedislike(Request $request)
             ->toArray();
         
         if (request()->expectsJson()) {
-            return response()->json([
+            $json = response()->json([
                 'success' => true,
                 'data' => [
                     'id' => $search->id,
@@ -3768,6 +3792,7 @@ public function storelikedislike(Request $request)
                 'requires_login' => $requiresLogin,
                 'has_private_access' => $hasPrivateAccess,
             ]);
+            return $isNonPublic ? SlugAccess::privatize($json) : $json;
         }
         
         $dayOfWeek = strtolower(Carbon::now()->format('D'));
@@ -3819,7 +3844,16 @@ public function storelikedislike(Request $request)
 			$token = $funnel->token;
 		}
 		
-        return Inertia::render('AISearchView', [
+		if ($isNonPublic) {
+			// EZ-LOCK-20261017 P0-6: never put the owner's SEO title/description/logo on a private page
+			$metaTitle = 'ez.wiki';
+			$metaDescription = '';
+			$metaKeywords = '';
+			$metaSiteUrl = url()->current();
+			$metaSiteName = 'ez.wiki';
+			$metaLogo = 'https://ez.wiki/ezlogo.png';
+		}
+        $page = Inertia::render('AISearchView', [
 			'funnel' => $token,
             'tokenInfo' => $tokenInfo,
             'domains' => $domains,
@@ -3887,8 +3921,11 @@ public function storelikedislike(Request $request)
 					'sitename' => $metaSiteName,
 					'metalogo' => $metaLogo
 				],
-				'favicon' => $favicon
+				'favicon' => $favicon,
+				'noindex' => $isNonPublic,
 			]);
+        // P0-7/P0-11: authorised views of a private slug are never cached or indexed
+        return $isNonPublic ? SlugAccess::privatize($page->toResponse(request())) : $page;
 		}
 	}
 	}else

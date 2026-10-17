@@ -8,7 +8,7 @@ use Illuminate\Database\Eloquent\Model;
 class LoginToken extends Model
 {
     protected $table = 'login_tokens';
-    protected $fillable = ['email', 'token_hash', 'code_hash', 'attempts', 'return_to', 'expires_at', 'used_at', 'type', 'audience_host', 'user_id'];
+    protected $fillable = ['email', 'token_hash', 'code_hash', 'attempts', 'return_to', 'expires_at', 'used_at', 'type', 'audience_host', 'user_id', 'subject'];   // subject: EZ-LOCK-20261017 slug_unlock
     protected $casts = ['expires_at' => 'datetime', 'used_at' => 'datetime', 'attempts' => 'integer'];
     protected $hidden = ['token_hash', 'code_hash'];
 }

@@ -46,8 +46,10 @@ class HandleInertiaRequests extends Middleware
             'auth' => [
                 'user' => $request->user(),
             ],
+            // EZ-LOCK-20261017 P0-15: visitors who are not signed in get only the "guest" route group
+            // (config/ziggy.php), not the full backend route map.
             'ziggy' => fn (): array => [
-                ...(new Ziggy)->toArray(),
+                ...(new Ziggy($request->user() ? null : 'guest'))->toArray(),
                 'location' => $request->url(),
             ],
             // EZ-REL-20261016-3: cross-domain sign-in (wall "Sign in" goes through ez.wiki)

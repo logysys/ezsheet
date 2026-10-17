@@ -7,6 +7,9 @@ use App\Models\AITooltip;
 use App\Models\EzFunnel;
 use App\Models\Template;
 use App\Models\PrivateAccessLog;
+use App\Models\SlugPasswordRequest;
+use App\Support\SlugAccess;
+use Illuminate\Support\Facades\Hash;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
 use Stripe\Stripe;
@@ -1695,7 +1698,11 @@ class AIHistoryController extends Controller
                 return [
                     'id' => $log->id,
                     'email' => $log->email,
-                    'access_number' => $log->access_number,
+                    // EZ-LOCK-20261017: never echo the old plaintext access number; show how they got in
+                    'method' => $log->method ?? 'legacy',
+                    'verified_at' => $log->verified_at ? $log->verified_at->toISOString() : null,
+                    'last_viewed_at' => $log->last_viewed_at ? $log->last_viewed_at->toISOString() : null,
+                    'views' => (int) ($log->views ?? 0),
                     'accessed_at' => $log->accessed_at ? $log->accessed_at->toISOString() : null,
                     'accessed_at_formatted' => $log->accessed_at ? $log->accessed_at->format('M d, Y \a\t h:i A') : null,
                     'ip_address' => $log->ip_address,
@@ -1870,9 +1877,21 @@ class AIHistoryController extends Controller
      */
     public function updatePrivateSettings(Request $request, $conversationId)
     {
+        // EZ-LOCK-20261017 P2: unlock modes. Base state stays public/private (updateStatus).
+        //   email_enabled     any visitor can open it with a one-time code sent to ANY email (owner sees the log)
+        //   password_enabled  visitors who know the owner-set password can open it
+        //   password          new password (6-128 chars); access_number (4 digits, old UI) is accepted as a password
+        //   clear_password / sign_out_all
+        // Changing or clearing the password, turning a method off, or sign_out_all signs out every visitor
+        // (unlock_epoch + 1). The password is stored hashed only and never returned or logged.
         $request->validate([
-            'access_number' => 'required|string|size:4|regex:/^\d{4}$/',
-            'access_limit' => 'nullable|integer|min:0'
+            'access_number'    => 'nullable|string|size:4|regex:/^\d{4}$/',
+            'access_limit'     => 'nullable|integer|min:0',
+            'email_enabled'    => 'nullable|boolean',
+            'password_enabled' => 'nullable|boolean',
+            'password'         => 'nullable|string|min:6|max:128',
+            'clear_password'   => 'nullable|boolean',
+            'sign_out_all'     => 'nullable|boolean',
         ]);
 
         $user = Auth::user();
@@ -1890,46 +1909,101 @@ class AIHistoryController extends Controller
         if (!$conversation->isOwnedBy($user, $sessionId)) {
             return response()->json(['error' => 'Unauthorized'], 403);
         }
-        
+
+        $set = [];
+        $revoke = $request->boolean('sign_out_all');
+        $hash = $conversation->unlock_password_hash;
+
+        $newPassword = $request->filled('password') ? (string) $request->input('password')
+            : ($request->filled('access_number') ? (string) $request->input('access_number') : null);
+        if ($newPassword !== null) {
+            if (!$hash || !Hash::check($newPassword, $hash)) {
+                $hash = Hash::make($newPassword);
+                $set['unlock_password_hash'] = $hash;
+                $revoke = true;
+            }
+            $set['private_access_number'] = null;   // stop keeping the plaintext number
+            if ($request->filled('access_number') && !$request->has('password_enabled')) {
+                $set['unlock_password_enabled'] = true;   // old UI: "set a number" meant "share by number"
+            }
+        }
+        if ($request->boolean('clear_password')) {
+            $hash = null;
+            $set['unlock_password_hash'] = null;
+            $set['unlock_password_enabled'] = false;
+            $set['private_access_number'] = null;
+            $revoke = true;
+        }
+        if ($request->has('password_enabled') && !$request->boolean('clear_password')) {
+            $on = $request->boolean('password_enabled');
+            if ($on && !$hash) {
+                return response()->json(['error' => 'password_required', 'message' => 'Set a password first.'], 422);
+            }
+            if (!$on && $conversation->unlock_password_enabled) {
+                $revoke = true;
+            }
+            $set['unlock_password_enabled'] = $on;
+        }
+        if ($request->has('email_enabled')) {
+            $on = $request->boolean('email_enabled');
+            if (!$on && $conversation->unlock_email_enabled) {
+                $revoke = true;
+            }
+            $set['unlock_email_enabled'] = $on;
+        }
+        if ($request->has('access_limit')) {
+            $set['private_access_limit'] = $request->access_limit === null ? null : (int) $request->access_limit;
+        }
+        if ($revoke) {
+            $set['unlock_epoch'] = DB::raw('unlock_epoch + 1');
+        }
+
         try {
             DB::beginTransaction();
-            
-            // Update private access settings for all messages in conversation
-            AISearchHistory::where('conversation_id', $conversationId)
-                ->update([
-                    'private_access_number' => $request->access_number,
-                    'private_access_limit' => $request->access_limit === null ? null : (int)$request->access_limit
-                ]);
-            
+            if ($set) {
+                // all messages of the conversation, like the other private_* columns
+                AISearchHistory::where('conversation_id', $conversationId)->update($set);
+            }
             DB::commit();
-            
-            Log::info('Private settings updated for conversation', [
-                'conversation_id' => $conversationId,
-                'access_number' => $request->access_number,
-                'access_limit' => $request->access_limit,
-                'user_id' => $user ? $user->id : null
-            ]);
-            
-            return response()->json([
-                'success' => true,
-                'message' => 'Private access settings updated successfully',
-                'access_number' => $request->access_number,
-                'access_limit' => $request->access_limit
-            ]);
-            
         } catch (\Exception $e) {
             DB::rollBack();
-            
             Log::error('Failed to update private settings', [
                 'conversation_id' => $conversationId,
                 'error' => $e->getMessage()
             ]);
-            
             return response()->json([
                 'error' => 'Failed to update private settings',
                 'message' => 'An error occurred while updating the settings.'
             ], 500);
         }
+
+        Log::info('Private settings updated for conversation', [   // never the password / number
+            'conversation_id' => $conversationId,
+            'changed' => array_keys($set),
+            'signed_out_visitors' => $revoke,
+            'user_id' => $user ? $user->id : null
+        ]);
+
+        return response()->json(['success' => true, 'message' => 'Private access settings updated successfully']
+            + $this->privateSettingsState($conversationId));
+    }
+
+    /** EZ-LOCK-20261017 P2: what the owner panel shows (no secrets). */
+    private function privateSettingsState(string $conversationId): array
+    {
+        $root = SlugAccess::rootOf($conversationId);
+        return [
+            'status' => $root ? SlugAccess::status($root) : null,
+            'unlock_available' => (bool) config('slug_access.unlock_enabled', false),
+            'email_enabled' => (bool) ($root->unlock_email_enabled ?? false),
+            'password_enabled' => (bool) ($root->unlock_password_enabled ?? false),
+            'has_password' => !empty($root->unlock_password_hash ?? null),
+            'access_number' => null,   // legacy key kept for the old UI; the number is never returned
+            'access_limit' => $root->private_access_limit ?? null,
+            'views_count' => $root->private_views_count ?? 0,
+            'viewers_count' => PrivateAccessLog::where('conversation_id', $conversationId)->whereNotNull('verified_at')->count(),
+            'open_password_requests' => SlugPasswordRequest::where('conversation_id', $conversationId)->where('status', 'open')->count(),
+        ];
     }
 
     /**
@@ -1956,12 +2030,7 @@ class AIHistoryController extends Controller
             return response()->json(['error' => 'Unauthorized'], 403);
         }
         
-        return response()->json([
-            'success' => true,
-            'access_number' => $conversation->private_access_number,
-            'access_limit' => $conversation->private_access_limit,
-            'views_count' => $conversation->private_views_count ?? 0
-        ]);
+        return response()->json(['success' => true] + $this->privateSettingsState((string) $conversationId));
     }
 
     /**

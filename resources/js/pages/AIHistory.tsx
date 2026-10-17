@@ -15,6 +15,7 @@ import ObsidianWikiPreview from '@/components/ObsidianWikiPreview';
 import WikiPreview from '@/components/WikiPreview';
 import ObsidianWikiPanel from '@/components/ObsidianWikiPanel';
 import SEOModal from '@/components/SEOModal';
+import SlugUnlockSettings from '@/components/SlugUnlockSettings';
 import EmbedRowModal from '@/components/EmbedRowModal';
 import rehypeRaw from 'rehype-raw';
 import rehypeSanitize from 'rehype-sanitize';
@@ -3388,6 +3389,8 @@ const EditPanel = ({
                                 
                                 {status === 'private' && (
                                     <div className="mt-3 space-y-3 p-3 bg-gray-700/30 rounded-xl border border-gray-600">
+                                        {/* EZ-LOCK-20261017 P2: email / password unlock, viewer log, password requests */}
+                                        <SlugUnlockSettings conversationId={conversation.conversation_id} />
                                         <div className="flex items-center justify-between">
                                             <h4 className="text-xs font-semibold text-gray-400">Private Access</h4>
                                             {conversation.private_views_count !== undefined && (

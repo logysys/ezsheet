@@ -31,6 +31,7 @@ use App\Models\TokenInfo;
 use App\Models\PrivateAccessLog;
 use App\Models\Sell;
 use App\Models\MessageReaction;
+use App\Support\SlugAccess;
 use Stripe\Stripe;
 use Stripe\PaymentIntent;
 use Stripe\PaymentMethod;
@@ -398,35 +399,19 @@ class SearchController extends Controller
             return false;
         }
 
-        $hasPrivateAccess = false;
-        $sessionData = session('private_access_' . $message->conversation_id);
-        if (!is_null($sessionData) && isset($sessionData['token'])) {
-            $hasPrivateAccess = true;
-        }
-
-        if ($hasPrivateAccess) {
-            return true;
-        }
-
-        if ($message->status === 'public') {
-            return true;
-        }
-
-        if ($message->status === 'private') {
-            $firstMessage = $message->getFirstMessage();
-            if ($firstMessage) {
-                $privateAccess = session('private_access_' . $firstMessage->conversation_id);
-                if (!is_null($privateAccess) && isset($privateAccess['token'])) {
-                    return true;
-                }
-            }
-            if ($this->isMessageOwner($message)) {
-                return true;
-            }
+        // EZ-LOCK-20261017: the conversation root decides (public / owner / valid unlock grant).
+        // Old access-number grants without the v2 marker no longer count.
+        $root = SlugAccess::root($message);
+        if (!SlugAccess::canView($root)) {
             return false;
         }
 
-        return false;
+        if ($message->status === 'private' && SlugAccess::isPublic($root)) {
+            // a single private message inside a public conversation: owner only (as before)
+            return $this->isMessageOwner($message);
+        }
+
+        return in_array($message->status, ['public', 'private'], true) || $message->status === null;
     }
 
     /**
@@ -454,11 +439,8 @@ class SearchController extends Controller
 		$user = Auth::user();
 		$sessionId = Session::getId();
 
-		$hasPrivateAccess = false;
-		$sessionData = session('private_access_' . $conversationId);
-		if (!is_null($sessionData) && isset($sessionData['token'])) {
-			$hasPrivateAccess = true;
-		}
+		// EZ-LOCK-20261017: only a valid v2 unlock grant counts (checks epoch, expiry, method still on)
+		$hasPrivateAccess = SlugAccess::hasGrantForConversation($conversationId);
 
 		return $messages->filter(function ($message) use ($user, $sessionId, $hasPrivateAccess) {
 			if ($message->status === 'hidden') {
@@ -494,11 +476,7 @@ class SearchController extends Controller
             return false;
         }
 
-        $hasPrivateAccess = false;
-        $sessionData = session('private_access_' . $firstMessage->conversation_id);
-        if (!is_null($sessionData) && isset($sessionData['token'])) {
-            $hasPrivateAccess = true;
-        }
+        $hasPrivateAccess = $firstMessage->status === 'private' && SlugAccess::hasGrant($firstMessage);   // EZ-LOCK-20261017
 
         if ($hasPrivateAccess) {
             return true;
@@ -2532,20 +2510,25 @@ class SearchController extends Controller
             return redirect('/')->with('error', 'AI search not found');
         }
 
-        $firstMessage = $search->getFirstMessage();
-        $conversationStatus = $firstMessage ? $firstMessage->status : $search->status;
+        // EZ-LOCK-20261017 P0-1: decide access BEFORE any prop is built. A viewer who may not see a
+        // private/hidden slug gets 404 (or the lock screen), with no title, ids, owner, timestamps,
+        // comments or SEO meta. Covers /X/{slug} and /api/X/{slug} (JSON).
+        $root = SlugAccess::root($search);
+        if (!SlugAccess::canView($root)) {
+            return SlugAccess::deny(request(), $root, $decodedSlug);
+        }
+        $isNonPublic = !SlugAccess::isPublic($root);
+
+        $firstMessage = $root;
+        $conversationStatus = $firstMessage->status ?: $search->status;
         $guestsAllowed = $this->canGuestsInteract($firstMessage);
 
         $guestInteractionDisabled = false;
         $requiresLogin = false;
 
-        $hasPrivateAccess = false;
-        $sessionData = session('private_access_' . $firstMessage->conversation_id);
-        if (!is_null($sessionData) && isset($sessionData['token'])) {
-            $hasPrivateAccess = true;
-        }
+        $hasPrivateAccess = $isNonPublic && SlugAccess::hasGrant($root);
 
-        $isOwner = Auth::check() && $firstMessage && $firstMessage->user_id === Auth::id();
+        $isOwner = SlugAccess::isOwner($root);
         $hasViewAccess = false;
 
         if ($conversationStatus === 'private') {
@@ -2682,7 +2665,7 @@ class SearchController extends Controller
                 'has_private_access' => $hasPrivateAccess,
             ];
 
-            return response()->json($response);
+            return $isNonPublic ? SlugAccess::privatize(response()->json($response)) : response()->json($response);
         }
 
         $dayOfWeek = strtolower(Carbon::now()->format('D'));
@@ -2734,6 +2717,15 @@ class SearchController extends Controller
 			}
 			$token = $funnelData = EzFunnel::where('ez_funnels.aiid', $search->id)->value('token');
 		}
+		if ($isNonPublic) {
+			// EZ-LOCK-20261017 P0-6: never put the owner's SEO title/description/logo on a private page
+			$metaTitle = 'ez.wiki';
+			$metaDescription = '';
+			$metaKeywords = '';
+			$metaSiteUrl = url()->current();
+			$metaSiteName = 'ez.wiki';
+			$metaLogo = 'https://ez.wiki/ezlogo.png';
+		}
 
         // Fetch comments for this conversation and its messages
         $convMessageIds = $conversationMessages->pluck('id')->toArray();
@@ -2776,7 +2768,7 @@ class SearchController extends Controller
                 ];
             });
 
-        return Inertia::render('AISearchView', [
+        $page = Inertia::render('AISearchView', [
 			'funnel' => $token,
             'initial_comments' => $initialComments,
             'tokenInfo' => $tokenInfo,
@@ -2847,8 +2839,12 @@ class SearchController extends Controller
 					'sitename' => $metaSiteName,
 					'metalogo' => $metaLogo
 				],
-				'favicon' => $favicon
+				'favicon' => $favicon,
+				'noindex' => $isNonPublic,
 			]);
+
+        // P0-7/P0-11: authorised views of a private slug are never cached or indexed
+        return $isNonPublic ? SlugAccess::privatize($page->toResponse(request())) : $page;
     }
 
     /**
@@ -3127,7 +3123,8 @@ class SearchController extends Controller
 
         $suggestions = array_merge($suggestions, $titles->toArray());
 
-        $funnelTokens = EzFunnel::query()
+        // EZ-LOCK-20261017 P0-9: suggestions are public to anyone; never offer private/hidden slugs or their handles
+        $funnelTokens = SlugAccess::whereNotInOrNull(EzFunnel::query(), 'aiid', SlugAccess::nonPublicMessageIds())
             ->where('token', 'like', "%{$query}%")
             ->limit(2)
             ->pluck('token')
@@ -3139,6 +3136,7 @@ class SearchController extends Controller
             ->where('slug', 'like', "%{$query}%")
             ->where('message_role', 'user')
             ->whereNull('parent_id')
+            ->where('status', AISearchHistory::STATUS_PUBLIC)
             ->limit(2)
             ->pluck('slug')
             ->map(fn($slug) => '/X/' . $slug);
@@ -4491,6 +4489,12 @@ class SearchController extends Controller
      */
     public function requestPrivateAccess(Request $request)
     {
+        // EZ-LOCK-20261017 P0: this emailed the slug's static 4-digit access number to ANY address
+        // that asked, so anyone could open any private slug that had a number set. Retired.
+        // The new unlock (per-request email code / owner password) is SlugUnlockController.
+        // Delete the code below in the next release.
+        return response()->json(['success' => false, 'error' => 'gone', 'message' => 'This unlock method was retired. Please reload the page.'], 410);
+
         $validator = Validator::make($request->all(), [
             'slug' => 'required|string',
             'email' => 'required|email|max:255',
@@ -4575,6 +4579,9 @@ class SearchController extends Controller
      */
     public function verifyPrivateAccess(Request $request)
     {
+        // EZ-LOCK-20261017 P0: retired together with requestPrivateAccess (see there).
+        return response()->json(['success' => false, 'error' => 'gone', 'message' => 'This unlock method was retired. Please reload the page.'], 410);
+
         $validator = Validator::make($request->all(), [
             'slug' => 'required|string',
             'access_number' => 'required|string|size:4',
@@ -4678,12 +4685,16 @@ class SearchController extends Controller
             ], 404);
         }
 
-        $firstMessage = $search->getFirstMessage();
+        $firstMessage = SlugAccess::root($search);
+        // EZ-LOCK-20261017 P0: never confirm that a slug exists, is private, or its view counts
+        // to someone who may not see it.
+        if (!SlugAccess::canView($firstMessage)) {
+            return SlugAccess::privatize(response()->json(['success' => false, 'message' => 'Conversation not found'], 404));
+        }
 
-        $sessionData = session('private_access_' . $firstMessage->conversation_id);
-        $hasSessionAccess = !is_null($sessionData) && isset($sessionData['token']);
+        $hasSessionAccess = !SlugAccess::isPublic($firstMessage) && SlugAccess::hasGrant($firstMessage);
 
-        $isOwner = Auth::check() && $firstMessage && $firstMessage->user_id === Auth::id();
+        $isOwner = SlugAccess::isOwner($firstMessage);
 
         $hasAccess = $hasSessionAccess || $isOwner;
 

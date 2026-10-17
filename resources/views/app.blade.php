@@ -5,6 +5,10 @@
         <meta name="viewport" content="width=device-width, initial-scale=1">
 		<meta http-equiv="X-UA-Compatible" content="IE=edge">
         <meta name="referrer" content="no-referrer-when-downgrade">
+        @if(!empty($noindex))
+        {{-- EZ-LOCK-20261017 P0-7: private slug (authorised view or lock screen) --}}
+        <meta name="robots" content="noindex, nofollow, noarchive">
+        @endif
 		
 		@isset($meta)
         <!-- Primary Meta Tags -->
@@ -101,7 +105,7 @@
         <link rel="preconnect" href="https://fonts.bunny.net">
         <link href="https://fonts.bunny.net/css?family=instrument-sans:400,500,600" rel="stylesheet" />
 		
-        @routes
+        @routes(auth()->check() ? null : 'guest')
         @viteReactRefresh
         @vite(['resources/js/app.tsx', "resources/js/pages/{$page['component']}.tsx"])
         @inertiaHead

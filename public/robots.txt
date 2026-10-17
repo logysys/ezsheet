@@ -1,2 +1,9 @@
 User-agent: *
-Disallow:
+Disallow: /api/
+Disallow: /searchai/
+Disallow: /content/
+Disallow: /ai/
+Disallow: /wall/
+Disallow: /slug-unlock/
+
+Sitemap: https://ez.wiki/sitemap.xml

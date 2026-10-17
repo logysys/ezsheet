@@ -15,11 +15,20 @@ class PrivateAccessLog extends Model
         'access_number',
         'ip_address',
         'user_agent',
+        // EZ-LOCK-20261017 P2: owner's viewer log
+        'method',
+        'user_id',
+        'verified_at',
+        'last_viewed_at',
+        'views',
     ];
     
     protected $casts = [
         'created_at' => 'datetime',
         'updated_at' => 'datetime',
+        'verified_at' => 'datetime',
+        'last_viewed_at' => 'datetime',
+        'views' => 'integer',
     ];
     
     public function conversation(): BelongsTo

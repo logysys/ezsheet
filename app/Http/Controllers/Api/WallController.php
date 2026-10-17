@@ -13,6 +13,7 @@ use App\Models\Emaildesign;
 use App\Mail\Eznew;
 use App\Services\WallHasher;
 use App\Support\EzSheetParser;
+use App\Support\SlugAccess;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Cache;
@@ -128,6 +129,36 @@ class WallController extends Controller
             Log::warning('wallOwnerId lookup failed', ['wall' => $w->slug, 'e' => $e->getMessage()]);
         }
         return null;
+    }
+
+    /**
+     * EZ-LOCK-20261017 P0-13: a wall that shows a private or hidden slug is readable only by someone
+     * who may see that slug (owner / valid unlock grant) or by the wall owner. Same message lookup
+     * as wallOwnerId(). On a lookup error only the wall owner may read (fail closed).
+     */
+    private function wallReadable(Wall $w, Request $r): bool
+    {
+        $meta = is_string($w->meta) ? json_decode($w->meta, true) : (array) $w->meta;
+        try {
+            $m = !empty($meta['message_id']) ? AISearchHistory::find((int) $meta['message_id']) : null;
+            if (!$m) {
+                $slug = (string) $w->slug;
+                $m = AISearchHistory::where('slug', $slug)
+                    ->orWhere('conversation_id', $slug)
+                    ->when(ctype_digit($slug), fn ($q) => $q->orWhere('id', (int) $slug))
+                    ->orWhere('social_media_metadata->wall_id', $slug)
+                    ->first();
+            }
+        } catch (\Throwable $e) {
+            Log::warning('wallReadable lookup failed', ['wall' => $w->slug, 'e' => $e->getMessage()]);
+            $uid = $this->currentUserId($r);
+            return $uid !== null && $this->wallOwnerId($w) === $uid;
+        }
+        if (!$m || SlugAccess::canView(SlugAccess::root($m))) {
+            return true;
+        }
+        $uid = $this->currentUserId($r);
+        return $uid !== null && $this->wallOwnerId($w) === $uid;
     }
 
     private function userOwnsWall(Wall $w, int $userId, Request $r): bool
@@ -488,6 +519,12 @@ class WallController extends Controller
             }, 404, ['Content-Type' => 'text/event-stream']);
         }
 
+        if (!$this->wallReadable($wall, $r)) {   // EZ-LOCK-20261017
+            return new StreamedResponse(function () {
+                echo "event: error\ndata: " . json_encode(['error' => 'not_found', 'message' => 'Wall not found']) . "\n\n";
+            }, 404, ['Content-Type' => 'text/event-stream', 'Cache-Control' => 'private, no-store']);
+        }
+
         return response()->stream(function () use ($wall) {
             @ini_set('zlib.output_compression', '0');
             @ini_set('output_buffering', '0');
@@ -558,6 +595,13 @@ class WallController extends Controller
                     'order'   => [],
                     'count'   => 0,
                 ], 404);
+            }
+
+            if (!$this->wallReadable($wall, $r)) {   // EZ-LOCK-20261017: same 404 as a missing wall
+                return SlugAccess::privatize(response()->json([
+                    'success' => false, 'error' => 'not_found', 'message' => 'Wall not found',
+                    'cards' => [], 'order' => [], 'count' => 0,
+                ], 404));
             }
 
             $snap = $this->snapshot($wall);
@@ -1397,6 +1441,9 @@ class WallController extends Controller
         $wall = $this->wall($slug, false);
         if (!$wall) {
             return response()->json(['error' => 'not-found'], 404);
+        }
+        if (!$this->wallReadable($wall, $r)) {   // EZ-LOCK-20261017
+            return SlugAccess::privatize(response()->json(['error' => 'not-found'], 404));
         }
         // Optional: client sends its own editor text to be cleaned; else rebuild from the DB.
         $text = $r->has('text') ? EzSheetParser::stripTags((string) $r->input('text')) : $this->sheetText($wall, false);
