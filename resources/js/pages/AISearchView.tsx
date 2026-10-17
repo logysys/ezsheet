@@ -930,6 +930,20 @@ export default function AISearchView({
 
     const [activeTab, setActiveTab] = useState<'social' | 'text'>('social');
     const [contentSubTab, setContentSubTab] = useState<'composer' | 'upload' | 'embed'>('composer');
+    // EZ-REL-20261017-1 item 30: the reply box under the conversation starts CLOSED. It opens only
+    // from the Reply button, always as a plain Markdown box, and closes again after a post or Cancel.
+    const [replyOpen, setReplyOpen] = useState(false);
+    const openReply = () => {
+        setContentFormat('markdown');
+        setActiveTab('social');
+        setContentSubTab('composer');
+        setReplyOpen(true);
+    };
+    const closeReply = () => {
+        setReplyOpen(false);
+        setContentFormat('markdown');
+        setContentSubTab('composer');
+    };
 
     const [commentContent, setCommentContent] = useState('');
     const [isCommenting, setIsCommenting] = useState(false);
@@ -2903,6 +2917,7 @@ export default function AISearchView({
                 fetchPinnedConversations();
 
                 showAlert('Social media post created successfully!', 'success');
+                closeReply();   // item 30: collapse after a successful post
             } else {
                 const errorMsg = response.data.message || 'Failed to create social media post';
                 showAlert(errorMsg, 'error');
@@ -3537,7 +3552,11 @@ export default function AISearchView({
                 confirm_empty: data?.confirmEmpty ? 1 : 0,
                 // Item 11: texts the owner chose to add as WiKi cards although a Co-WiKi card has the same text.
                 add_cowiki_raws: Array.isArray(data?.addCowikiRaws) ? data.addCowikiRaws : [],
-            }, { signal: ctl.signal, timeout: EZ_PUSH_TIMEOUT_MS });
+            }, {
+                signal: ctl.signal, timeout: EZ_PUSH_TIMEOUT_MS,
+                // item 36: a wall owner key (per wall, checked by the server against owner_hash) rides along
+                headers: typeof data?.ownerToken === 'string' && /^[\x21-\x7e]{1,200}$/.test(data.ownerToken) ? { 'x-wall-owner': data.ownerToken } : undefined,
+            });
             status = pushRes.status;
             body = pushRes.data;
             if (Array.isArray(pushRes.data?.cards)) acceptWallSnapshot(wallId, pushRes.data.cards, pushRes.data.rev);
@@ -4899,6 +4918,7 @@ export default function AISearchView({
                 className="w-full"
                 conversationId={search.conversation_id}
                 contentFormat={contentFormat}
+                onCancel={closeReply}
             />
         );
     };
@@ -5095,9 +5115,40 @@ export default function AISearchView({
             );
         }
 
+        if (!replyOpen) {
+            // item 30: collapsed by default, nothing is open until the visitor asks for it
+            return (
+                <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-3 sm:p-4 flex items-center justify-center gap-2" data-testid="reply-collapsed">
+                    <button
+                        type="button"
+                        onClick={openReply}
+                        aria-expanded={false}
+                        data-testid="reply-open"
+                        className="px-5 py-2 text-sm font-semibold rounded-full border border-gray-300 text-gray-700 hover:bg-gray-50 transition-colors flex items-center gap-2"
+                    >
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                            <polyline points="9 17 4 12 9 7"/>
+                            <path d="M20 18v-2a4 4 0 0 0-4-4H4"/>
+                        </svg>
+                        <span>Reply</span>
+                    </button>
+                </div>
+            );
+        }
+
         return (
             <div className="bg-white rounded-xl border border-gray-200 shadow-sm">
                 <div className="flex items-center gap-2 p-2 sm:p-4 border-b border-gray-200 overflow-x-auto no-scrollbar flex-nowrap sm:flex-wrap">
+                    <button
+                        type="button"
+                        onClick={closeReply}
+                        aria-expanded={true}
+                        aria-label="Close reply"
+                        data-testid="reply-close"
+                        className="order-last ml-auto px-3 py-2 text-sm font-semibold rounded-md text-gray-500 hover:bg-gray-100"
+                    >
+                        ✕
+                    </button>
                     <button
                         onClick={() => {
                             setActiveTab('social');

@@ -351,7 +351,7 @@ const MD_CSS="html{scrollbar-width:thin;scrollbar-color:#c9c5bd transparent}html
  +"th,td{border:1px solid #e2e8f0;padding:8px 12px;text-align:left}th{background:#f8fafc;font-weight:800;color:#0f172a;border-bottom:2px solid #cbd5e1}tr:nth-child(even) td{background:#f8fafc}tr:hover td{background:#f1f5f9}del{opacity:.6}";
 
 /* 附在 HTML 嵌入碼與 Markdown 卡後面：量內容實際高度回報給外層（Twitter、Markdown 等載入後長高會自動回報適應高度） */
-const REPORT='<script>(function(){var last=-1;function m(){var b=document.body;if(!b)return;var r=b.getBoundingClientRect(),d=document.documentElement,h=Math.ceil(Math.max(r.bottom+(parseFloat(getComputedStyle(b).marginBottom)||0),d.scrollHeight>d.clientHeight+1?d.scrollHeight:0,b.scrollHeight));if(Math.abs(h-last)>1){last=h;parent.postMessage({__wallH:h},"*");}}addEventListener("load",m);function u(){var d=document.documentElement,b=document.body;if(!b)return;var hs=getComputedStyle(d).overflowY,bs=getComputedStyle(b).overflowY;if(hs==="hidden"||hs==="clip"||(hs==="visible"&&(bs==="hidden"||bs==="clip")))d.style.setProperty("overflow-y","auto","important");}u();addEventListener("load",u);addEventListener("message",function(e){var v=e.data&&e.data.__wallScroll;if(e.source===parent&&typeof v==="number"&&isFinite(v))(document.scrollingElement||document.documentElement).scrollBy(0,v);});if(window.ResizeObserver&&document.body)new ResizeObserver(m).observe(document.body);setTimeout(m,30);setTimeout(m,150);setTimeout(m,600);setTimeout(m,1500);setTimeout(m,3000);})();<\/script>';
+const REPORT='<script>(function(){var last=-1,ln=0;function m(){var b=document.body;if(!b)return;var r=b.getBoundingClientRect(),d=document.documentElement,h=Math.ceil(Math.max(r.bottom+(parseFloat(getComputedStyle(b).marginBottom)||0),d.scrollHeight>d.clientHeight+1?d.scrollHeight:0,b.scrollHeight));var I=document.images||[],n=0;for(var i=0;i<I.length;i++)if(I[i].complete&&I[i].naturalWidth)n++;if(Math.abs(h-last)>1||n!==ln){last=h;ln=n;parent.postMessage({__wallH:h,__wallImgs:n},"*");}}addEventListener("load",m);if(document.addEventListener)document.addEventListener("load",function(e){if(e.target&&e.target.tagName==="IMG")m();},true);function u(){var d=document.documentElement,b=document.body;if(!b)return;var hs=getComputedStyle(d).overflowY,bs=getComputedStyle(b).overflowY;if(hs==="hidden"||hs==="clip"||(hs==="visible"&&(bs==="hidden"||bs==="clip")))d.style.setProperty("overflow-y","auto","important");}u();addEventListener("load",u);addEventListener("message",function(e){var v=e.data&&e.data.__wallScroll;if(e.source===parent&&typeof v==="number"&&isFinite(v))(document.scrollingElement||document.documentElement).scrollBy(0,v);});if(window.ResizeObserver&&document.body)new ResizeObserver(m).observe(document.body);setTimeout(m,30);setTimeout(m,150);setTimeout(m,600);setTimeout(m,1500);setTimeout(m,3000);})();<\/script>';
 
 function mdDoc(md){
   return '<!doctype html><html><head><meta charset="utf-8">'
@@ -560,7 +560,7 @@ function toolsHTML(o){
 }
 function cardHTML(o,ro){
   const tomb=isTomb(o);
-  const isOwner = (typeof window !== 'undefined' && window.isOwner === true) || !!(typeof ownerToken === 'function' && ownerToken());
+  const isOwner = ezOwnerNow();   /* item 36: server-confirmed for this wall */
   const child=o.role==='child'||(o.role==null&&!!o.guest);
   const tog=!ro&&o.type==='web'?'<button class="tog" data-act="emb" data-i18n-aria="'+(tomb?'tryEmbed':'markTomb')+'" aria-label="'+esc(t(tomb?'tryEmbed':'markTomb'))+'" title="'+esc(t(tomb?'tryEmbed':'markTomb'))+'">'+(tomb?'↻':'🪦')+'</button>':'';
   /* 調整大小的把手：訪客也有 */
@@ -962,8 +962,39 @@ function wallMe(){
   }
   return v;
 }
-function ownerToken(){try{return localStorage.getItem('wall_owner')||'';}catch(e){return '';}}
-function setOwnerToken(v){try{v?localStorage.setItem('wall_owner',v):localStorage.removeItem('wall_owner');}catch(e){}}
+/* item 36 (EZ-REL-20261017-3): the owner key is stored PER WALL ('wall_owner:<wall id>'). It is only a
+   candidate: it is sent so the server can check it, and the wall counts you as owner only after
+   GET /api/wall/<id>/me says so. The old shared 'wall_owner' key is still sent as a candidate (and moved
+   to the per-wall key once the server confirms it), but never trusted on its own. */
+function ezOwnerWallId(){try{return String((typeof window!=='undefined'&&window.WALL_ID)||'');}catch(e){return '';}}
+function ownerTokenOwn(wid){wid=wid||ezOwnerWallId();try{return (wid&&localStorage.getItem('wall_owner:'+wid))||'';}catch(e){return '';}}
+function ownerToken(wid){const v=ownerTokenOwn(wid);if(v)return v;try{return localStorage.getItem('wall_owner')||'';}catch(e){return '';}}
+function setOwnerToken(v,wid){wid=wid||ezOwnerWallId();if(!wid)return;try{v?localStorage.setItem('wall_owner:'+wid,v):localStorage.removeItem('wall_owner:'+wid);}catch(e){}}
+/* item 36: owner now = what the server said for this wall on this host; before it answers, the page's own flag */
+function ezOwnerNow(){
+  try{const me=window.EZ_ME;if(me&&typeof me.is_owner==='boolean')return me.is_owner;}catch(e){}
+  return typeof window!=='undefined'&&window.isOwner===true;
+}
+/* item 36: GET /api/wall/<id>/me on THIS host (relative URL: the srcdoc wall shares the page's origin).
+   Resolves {authenticated,user,is_owner,via,reason} or null when the server can't be reached. */
+let ezMeP=null,ezMeAt=0;
+function ezWallMe(force,wid){
+  wid=wid||ezOwnerWallId();if(!wid||wid==='ezsheet'||typeof fetch!=='function')return Promise.resolve(null);
+  if(!force&&ezMeP&&Date.now()-ezMeAt<15000)return ezMeP;
+  ezMeAt=Date.now();
+  const hd={'Accept':'application/json','X-Requested-With':'XMLHttpRequest'};
+  const own=ownerTokenOwn(wid),legacy=own?'':ownerToken(wid);if(own||legacy)hd['x-wall-owner']=own||legacy;
+  ezMeP=fetch('/api/wall/'+encodeURIComponent(wid)+'/me',{credentials:'same-origin',headers:hd,cache:'no-store'})
+    .then(r=>r.ok?r.json():null).then(me=>{
+      if(!me||typeof me.is_owner!=='boolean')return null;
+      if(me.is_owner&&me.via==='token'&&legacy)setOwnerToken(legacy,wid);   /* confirmed: keep it for THIS wall */
+      window.EZ_ME=me;ezMeListeners.forEach(f=>{try{f(me);}catch(e){}});
+      return me;
+    }).catch(()=>null);
+  return ezMeP;
+}
+const ezMeListeners=[];
+function ezOnWallMe(f){ezMeListeners.push(f);}
 /* EZ-REL-20261016-3: CSRF back on for session routes -> send Laravel's XSRF-TOKEN cookie
    value (same-origin requests only; never to another origin). */
 function ezCsrfHeaders(){
@@ -1012,7 +1043,7 @@ const syncBase=id=>{
   return (o ? o : '') + '/api/wall/' + encodeURIComponent(id);
 };
 function saveWallSetting(settings){
-  const isOw = (typeof window !== 'undefined' && window.isOwner === true) || !!(typeof ownerToken === 'function' && ownerToken());
+  const isOw = ezOwnerNow();   /* item 36: server-confirmed for this wall */
   if(!isOw) return;
   const wallId = typeof WALL_ID !== 'undefined' ? WALL_ID : ((typeof window !== 'undefined' && window.WALL_ID) || 'default');
   const url = syncBase(wallId) + '/settings';
@@ -1148,13 +1179,60 @@ const ezHDamp=ezHeightDamper();
 window.addEventListener('message',e=>{
   const d=e.data;if(!d||typeof d.__wallH!=='number'||!(d.__wallH>0))return;
   const f=[...document.querySelectorAll('iframe.html-frame')].find(x=>x.contentWindow===e.source);if(!f)return;
+  if(typeof d.__wallImgs==='number')f.__imgN=d.__wallImgs;   /* item 35 */
   ezHDamp.push(f,Math.min(Math.round(d.__wallH),MAX-BORDER),(fr,h)=>{
     const el=fr.closest('.item');
     /* A 區卡片的 id 前面多了 a-，回報時換回原本的卡片 id */
-    if(el)measureCbs.forEach(cb=>cb(el.dataset.id.replace(/^[ac]-/,''),h));
+    if(el)measureCbs.forEach(cb=>cb(el.dataset.id.replace(/^[ac]-/,''),h,fr.__imgN||0));
   });
 });
 function onMeasure(cb){measureCbs.push(cb);}
+/* item 35: an auto-height card (HTML / Markdown) that nobody stretched by hand and that has an
+   image which finished loading follows its measured content height in EVERY layout, "original"
+   included. Before this, "original" only let such a card shrink, so a card measured before its
+   image loaded (52px) stayed a strip. Cards without images keep the old "original" rule (only
+   shrink), so a passing tall report (window/zoom change) cannot blow them up.
+   Growth caused by another image finishing does not count toward the 4-grow loop guard
+   (bounded by the number of images, so it cannot loop). */
+function ezAutoFollows(o){return !!(o&&o.fit&&o.fit.t==='auto'&&!o.manual);}
+function ezMeasureStep(o,h,imgs,s,mode,hasOrig){
+  s=s||{};const ni=+imgs||0,imgGrew=ni>(s.imgs||0);if(imgGrew)s.imgs=ni;
+  if(Math.abs((o.mh||0)-h)<=2)return false;
+  if(o.mh&&h>o.mh&&!imgGrew){s.grow=(s.grow||0)+1;if(s.grow>4)return false;}
+  if(imgGrew&&ezAutoFollows(o))o._imgGrown=true;
+  o.mh=h;const k=mode>0?mode:2;
+  if(mode!==-1||!hasOrig||o._imgGrown||o.h>fitH(o,o.w,k))o.h=fitH(o,o.w,k);
+  return true;
+}
+/* item 35: uploaded files are stored as https (or relative on a dev host), never http:// */
+function ezUploadUrl(url,loc){
+  url=String(url==null?'':url);loc=loc||(typeof location!=='undefined'?location:null);
+  if(!url||/^(data|blob):/i.test(url))return url;
+  const devHost=x=>/^(localhost|127\.|0\.0\.0\.0|\[::1\])/i.test(x||'');
+  const host=loc&&loc.host||'';
+  if(url.charAt(0)==='/'&&url.charAt(1)!=='/'){
+    if(!host||!/^https?:$/.test(loc.protocol||''))return url;
+    return (devHost(host)?loc.protocol+'//':'https://')+host+url;
+  }
+  if(url.slice(0,2)==='//')return 'https:'+url;
+  const m=/^http:\/\/([^\/?#]+)(.*)$/i.exec(url);
+  if(m&&!devHost(m[1]))return 'https://'+m[1]+m[2];
+  return url;
+}
+/* item 35: natural size of an image file, so the <img> tag reserves its space before it loads */
+function ezImgDims(file,ms){
+  return new Promise(res=>{
+    let done=false,u='';const fin=v=>{if(done)return;done=true;try{if(u)URL.revokeObjectURL(u);}catch(e){}res(v);};
+    try{const im=new Image();u=URL.createObjectURL(file);
+      im.onload=()=>fin(im.naturalWidth>0&&im.naturalHeight>0?{w:im.naturalWidth,h:im.naturalHeight}:null);
+      im.onerror=()=>fin(null);im.src=u;}catch(e){fin(null);}
+    setTimeout(()=>fin(null),ms||4000);
+  });
+}
+function ezImgTag(url,name,d){
+  const wh=d&&d.w>0&&d.h>0?' width="'+Math.round(d.w)+'" height="'+Math.round(d.h)+'"':'';
+  return '<img src="'+esc(url)+'" alt="'+esc(name||'')+'"'+wh+' style="max-width:100%;height:auto;display:block;border-radius:8px;margin:0 auto" />';
+}
 /* 選配：伺服器端嵌入檢查。瀏覽器讀不到別的網站能不能被嵌入，只有伺服器能看 X-Frame-Options／CSP。
    setFrameCheck('https://ez.wiki/api/frame-check') 後，會對一般網頁卡 GET ?url=…，
    回傳 {"embeddable":false} 的就改成墓碑。未設定時只用上面的已知清單與手動標記。 */
@@ -2068,7 +2146,7 @@ function zaMove(B,d,auto){
   if(!auto&&B.timer)zaStart(B,true);
 }
 function zaPlace(B,instant){
-  const n=B.items.length,cw=B.step-GAP;
+  const n=B.items.length,cw=B.step-(B.gap||GAP);
   /* The band height is the tallest card, so its bottom edge never shifts while sliding. */
   const band=B.h;
   const sec=document.getElementById(B.id);
@@ -2083,6 +2161,7 @@ function zaPlace(B,instant){
     el._rel=rel;el._keep=rel<=B.k;
     if(el._keep)mountQ.add(el);
   });
+  bandRailsPaint(B,instant);   /* item 29: rails follow their cards */
   pump();
 }
 function bandUpdate(B,items){
@@ -2092,15 +2171,18 @@ function bandUpdate(B,items){
   sec.hidden=!on;
   if(B.id==='zoneA')document.body.classList.toggle('za-on',on);
   if(was!==on){sec.style.marginTop='';dispatchEvent(new Event('wall:carousel'));}
-  if(!on){B.els.forEach(el=>dropCard(el));B.els.clear();B.items=[];zaStop(B);return;}
+  if(!on){B.els.forEach(el=>dropCard(el));B.els.clear();B.items=[];zaStop(B);bandRailsPaint(B,true);return;}
   const nWas=B.items.length;
   const keep=new Map(items.map(o=>[o._id,o]));
   B.els.forEach((el,id)=>{const o=keep.get(id);if(!o||el._sig!==zaSig(o)){dropCard(el);B.els.delete(id);}});
   B.items=items;
   const W=sec.clientWidth||document.documentElement.clientWidth;
   B.k=Math.min(zaCols(W),items.length);
-  B.step=Math.round((W-GAP*(B.k-1))/B.k)+GAP;
-  let h=0;items.forEach(o=>{const ih=fitH(o,B.step-GAP,B.k);if(ih>h)h=ih;});
+  /* item 29: in Beads a band with Co-WiKi families keeps the same side rail as Content:
+     BEAD_GAP between cards and BEAD_RAIL after the last one, so every rail sits on the RIGHT. */
+  B.rail=ezBandRailOn(items);B.gap=B.rail?BEAD_GAP:GAP;
+  B.step=B.rail?Math.round((W-BEAD_RAIL-BEAD_GAP*(B.k-1))/B.k)+BEAD_GAP:Math.round((W-GAP*(B.k-1))/B.k)+GAP;
+  let h=0;items.forEach(o=>{const ih=fitH(o,B.step-B.gap,B.k);if(ih>h)h=ih;});
   B.h=Math.max(160,Math.min(h,600));sec.style.height=B.h+'px';
   items.forEach(o=>{
     let el=B.els.get(o._id);
@@ -2527,8 +2609,9 @@ function bootReadonly(){
   setLangCode(I18N[pref.lang]?pref.lang:d.lang);
   const savePref=()=>{try{localStorage.setItem(VKEY,JSON.stringify({mode,lang:LANG,car,zones,zorder}));}catch(e){}};
 
-  const isOwner = (typeof window !== 'undefined' && window.isOwner === true) || !!(typeof ownerToken === 'function' && ownerToken());
-  const globeHTML = isOwner ? '<button class="globe" onclick="openPanel()" data-i18n-aria="openEditor" title="'+esc(t('openEditor'))+'">🌍</button>' : '';
+  const isOwner = ezOwnerNow();   /* item 36: server-confirmed for this wall */
+  /* item 36: the globe is always in the bar and shown/hidden by ezOwnerNow() (server-confirmed, see meApply) */
+  const globeHTML = '<button class="globe" onclick="openPanel()" data-i18n-aria="openEditor" title="'+esc(t('openEditor'))+'">🌍</button>';
   const fabHTML = '<button id="fab" class="fab" onclick="openPanel()"><span id="idDisplay">'+esc(displayToken)+'</span></button>';
   document.body.insertAdjacentHTML('afterbegin','<div class="bar-zone" id="barZone" aria-label="EzBar"><div class="fab-wrap">'+globeHTML+fabHTML+menuHTML(true)+shuffleBtnHTML()+carouselBtnHTML()+(useFilter?filterBtnHTML():'')+zoneBtnHTML()+viewBtnHTML()+fxBtnHTML()+syncBtnHTML()+langSelectHTML()+'</div>'+(useFilter?filterBarHTML():'')+'</div>');
   if(!isOwner){document.querySelectorAll('.globe').forEach(el=>{el.style.display='none';});}
@@ -2536,6 +2619,21 @@ function bootReadonly(){
   window.__wallPack = pack;
   window.WALL_ID = id || 'Wall';
   if(id)document.title=id;
+  /* item 36: globe, Push, review list and owner tools follow GET /api/wall/<id>/me for THIS host:
+     on load, when the tab/frame gets focus again (max every 15 s), and before each push (EzSheet). */
+  const meApply=me=>{
+    const ow=ezOwnerNow();window.isOwner=ow;
+    document.body.classList.toggle('is-owner',ow);document.body.classList.toggle('not-owner',!ow);
+    document.querySelectorAll('.globe').forEach(el=>{el.style.display=ow?'':'none';});
+    const rb=document.getElementById('revBtn');if(rb)rb.hidden=!ow;
+    try{items.forEach(o=>refreshChrome(o));}catch(e){}
+    if(typeof window.ezOnOwnerChange==='function'){try{window.ezOnOwnerChange(ow,me);}catch(e){}}
+  };
+  ezOnWallMe(meApply);
+  ezWallMe(true);
+  const meAgain=()=>{if(document.visibilityState!=='hidden')ezWallMe(false);};
+  window.addEventListener('focus',meAgain);document.addEventListener('visibilitychange',meAgain);
+  try{if(window.parent&&window.parent!==window){window.parent.addEventListener('focus',meAgain);}}catch(e){}
   const wall=document.getElementById('wall');
   let empty=null;
   const bItems=items.filter(o=>o.zone==='b'||!o.zone);
@@ -2545,7 +2643,8 @@ function bootReadonly(){
   let zorder=validOrder(pref.zorder||d.zorder);
 
   function apply(){
-    if(mode===-1)items.forEach(o=>{const g=orig.get(o._id);o.w=g.w;o.h=g.h;o.span=g.span;o.rh=g.rh;});
+    if(mode===-1)items.forEach(o=>{const g=orig.get(o._id);o.w=g.w;o.h=g.h;o.span=g.span;o.rh=g.rh;
+      if(o._imgGrown&&ezAutoFollows(o)&&o.mh)o.h=fitH(o,o.w,2);});   /* item 35: measured content wins over the stored guess */
     /* 拉過大小的卡不再參與隨機，否則每次重排 span 又被設回去、尺寸就被抹掉。
        o.manual 只代表「高度也自由拉過」，所以另外看這位訪客存了尺寸沒有。 */
     else if(mode===0)items.forEach((o,i)=>{
@@ -2570,11 +2669,11 @@ function bootReadonly(){
   }
   let raf=0;const later=()=>{if(!raf)raf=requestAnimationFrame(()=>{raf=0;pack();});};
   addEventListener('wall:relayout',later);
-  const grow=new Map();
-  onMeasure((cid,h)=>{
-    const o=byId.get(cid);if(!o||Math.abs((o.mh||0)-h)<=2)return;
-    if(o.mh&&h>o.mh){const g=(grow.get(cid)||0)+1;grow.set(cid,g);if(g>4)return;}
-    o.mh=h;if(mode!==-1||!orig.get(cid)||o.h>fitH(o,o.w,mode>0?mode:2))o.h=fitH(o,o.w,mode>0?mode:2);later();
+  const mst=new Map();   /* item 35: per-card grow guard + loaded-image count */
+  onMeasure((cid,h,imgs)=>{
+    const o=byId.get(cid);if(!o)return;
+    let s=mst.get(cid);if(!s){s={};mst.set(cid,s);}
+    if(ezMeasureStep(o,h,imgs,s,mode,!!orig.get(cid)))later();
   });
   function applyLangUI(){applyI18n();updateLayoutUI(mode);applyZoneOrder(zorder);carSync(wall,true);if(empty)empty.textContent=t('wallEmpty');
     const d1=document.getElementById('idDisplay');if(d1)d1.textContent=displayToken;
@@ -2971,7 +3070,7 @@ function bootReadonly(){
     paintViewBtn();
   }
   WallCore.setView=v=>setView(v);
-  const isOwnerNow=()=>(typeof window!=='undefined'&&window.isOwner===true)||!!ownerToken();
+  const isOwnerNow=()=>ezOwnerNow();   /* item 36 */
   function chooseView(v){ezViewSaveLocal(wallId,v);setView(v);}
   function setDefaultView(){
     if(!isOwnerNow())return;
@@ -3039,17 +3138,39 @@ function bootReadonly(){
       mode:anchor?'anchor':'center',sheet:/sheet/.test(cls)?'force':false,onClose:()=>cur.close()});
     cur.pop=pop;return cur;
   }
+  /* item 34: copy a size made in the bead popover onto the real card and keep it */
+  function ezPopResized(o,c,skip){
+    o.w=c.w;o.h=c.h;o.manual=!!c.manual;o.span=0;o.rh=0;
+    sizes[rawHash(o._raw)]={w:o.w,h:o.h,manual:!!o.manual};saveSizes();
+    const g=orig.get(o._id);if(g&&mode===-1){g.w=o.w;g.h=o.h;g.span=0;g.rh=0;}  /* "original" keeps it this session */
+    ['','a-','c-'].forEach(p=>document.querySelectorAll('.item[data-id="'+p+o._id+'"]').forEach(x=>{if(x!==skip)applySize(x,o);}));
+    pack();
+  }
   /* click on a bead: the full card next to the bead (item 23/24) */
   function beadFull(o,anchor){
     const V=ezVisibleView(window);
-    const w=Math.min(V.r-V.l-24,Math.max(380,Math.min(640,o.w||360)));
-    const h0=Math.max(240,Math.round(w*((o.h&&o.w)?o.h/o.w:.75)));
+    /* item 34: a size this viewer saved for the card is used as-is */
+    const saved=sizes[rawHash(o._raw)];
+    const w=saved?Math.max(MIN,Math.min(V.r-V.l-24,o.w)):Math.min(V.r-V.l-24,Math.max(380,Math.min(640,o.w||360)));
+    const h0=saved?Math.max(MIN,o.h):Math.max(240,Math.round(w*((o.h&&o.w)?o.h/o.w:.75)));
     const m=beadModal('bead-pane','<div class="bead-full" role="dialog" aria-label="Co-WiKi card"><button type="button" class="bf-x" data-close aria-label="Close">×</button></div>',(e,close)=>{
       const b=e.target.closest('[data-act]');if(!b)return;
       if(b.dataset.act==='del'||b.dataset.act==='gdel'){e.preventDefault();close();removeCard(o);}
     },null,null);
-    const el=makeCard(Object.assign({},o,{w,h:h0}),true);el.style.width=w+'px';el.style.height=h0+'px';
+    const c=Object.assign({},o,{w,h:h0});
+    const el=makeCard(c,true);el.style.width=w+'px';el.style.height=h0+'px';
     m.bg.appendChild(el);
+    /* item 34: the yellow corner / side grip resize the card in the popover too. The wall's own
+       pointerdown listener never sees this copy (it lives in <body>), so bind it here; when the
+       drag ends the size goes to the real card, is saved under sizes[rawHash] and the wall redraws. */
+    m.bg.addEventListener('pointerdown',e=>{
+      const a=e.target.closest&&e.target.closest('.resize-anchor,.side-anchor');if(!a||!el.contains(a))return;
+      e.stopPropagation();
+      if(o.mh)c.mh=o.mh;   /* the popover card's own height report lands on the real card */
+      resizeStart(a,el,c,a.classList.contains('side-anchor'),e,()=>{
+        ezPopResized(o,c,el);if(m.pop&&m.pop.fit)m.pop.fit();
+      });
+    });
     if(anchor){m.pop.close(true);m.pop=ezAnchorPopover(m.bg,{anchor:(()=>{const id=anchor.dataset.bead;return ()=>{if(!anchor.isConnected){const nb=document.querySelector('.bead[data-bead="'+(window.CSS&&CSS.escape?CSS.escape(id):id)+'"]');if(nb)anchor=nb;}return anchor.isConnected?anchor:null;};})(),onClose:()=>m.close(),sheet:false});}
     else{m.pop.close(true);m.pop=ezAnchorPopover(m.bg,{mode:'center',onClose:()=>m.close(),sheet:false});}
     const bx=m.bg.querySelector('.bf-x');if(bx)bx.focus({preventScroll:true});
@@ -3080,6 +3201,8 @@ function bootReadonly(){
     w.addEventListener('focusout',beadHide);
     addEventListener('scroll',beadHide,{passive:true});
     w.addEventListener('click',e=>{
+      const cp=e.target.closest&&e.target.closest('.bead-copy');   /* item 29: red dot = copy this family */
+      if(cp){e.preventDefault();e.stopPropagation();beadHide();ezCopyFamily(cp.dataset.copy,cp);return;}
       const m=e.target.closest&&e.target.closest('.bead-more');
       if(m){e.preventDefault();const c=m.dataset.more;BEAD_OPEN.has(c)?BEAD_OPEN.delete(c):BEAD_OPEN.add(c);beadsPaint(document.getElementById('wall'));bandBeadsPaint();return;}
       const b=beadOf(e);if(!b)return;
@@ -3167,7 +3290,7 @@ function bootReadonly(){
     const rb=document.getElementById('revBtn');
     if(rb){
       const showRev=()=>{
-        const isOw = (typeof window !== 'undefined' && window.isOwner === true) || !!ownerToken();
+        const isOw = ezOwnerNow();   /* item 36: server-confirmed for this wall */
         rb.hidden = !isOw;
       };
       showRev();
@@ -3175,7 +3298,7 @@ function bootReadonly(){
       /* 版主用 ?owner=… 進來一次，金鑰就記在這台瀏覽器裡 */
       try{
         const q=new URLSearchParams(location.search).get('owner');
-        if(q){setOwnerToken(q);showRev();
+        if(q){setOwnerToken(q);showRev();ezWallMe(true);   /* item 36: confirm the key with the server */
           history.replaceState(null,'',location.pathname+location.hash);}
       }catch(e){}
       /* 長按牆名可以輸入或清掉金鑰 */
@@ -3185,7 +3308,7 @@ function bootReadonly(){
         const ask=()=>{
           const v=prompt(t('revAsk'),ownerToken());
           if(v===null)return;
-          setOwnerToken(v.trim());showRev();
+          setOwnerToken(v.trim());ezWallMe(true).then(showRev);   /* item 36 */
         };
         fab.addEventListener('pointerdown',()=>{hold=setTimeout(ask,700);});
         ['pointerup','pointerleave','pointercancel'].forEach(k=>fab.addEventListener(k,()=>clearTimeout(hold)));
@@ -3427,7 +3550,7 @@ function ezMine(id){try{const a=JSON.parse(localStorage.getItem(ezMineKey(id))||
 function ezMineAdd(id,cid){try{const s=ezMine(id);s.add(String(cid));localStorage.setItem(ezMineKey(id),JSON.stringify([...s].slice(-500)));}catch(e){}}
 function ezCtx(){
   const id=(typeof window!=='undefined'&&window.WALL_ID)||'default';
-  const isOwner=(typeof window!=='undefined'&&window.isOwner===true)||!!ownerToken();
+  const isOwner = ezOwnerNow();   /* item 36: server-confirmed for this wall */
   const u=(typeof window!=='undefined'&&window.auth&&window.auth.user)?window.auth.user.id:null;
   return {isOwner,userId:u,mine:ezMine(id)};
 }
@@ -3448,8 +3571,8 @@ function ezRowLayout(sizes,k,w,gap){
 /* ==================== item 16: Bead view (owner setting Cards/Beads) ====================
    In Beads, each mother's Co-WiKi children collapse into beads on a vertical string
    beside the mother (newest at the top). Children are hidden from the masonry, so the
-   layout, filters and shuffle only move mothers, i.e. whole families. Topic/InfoMercial
-   bands are untouched. */
+   layout, filters and shuffle only move mothers, i.e. whole families. Item 29: the
+   Topic/InfoMercial bands use the same right-hand rail (bandRailsPaint). */
 let BEADS=false;
 const BEAD_RAIL=34,BEAD_GAP=44,BEAD_STEP=26,BEAD_TOP=14;
 const BEAD_OPEN=new Set();
@@ -3569,6 +3692,23 @@ function ezBeadCardHTML(o){
     +'<div class="bp-meta"><span class="bp-av">'+esc(who.charAt(0).toUpperCase())+'</span><span>'+esc(who)+(o.at?' · '+ezAgo(+o.at):'')+'</span>'
     +(o.pinned?'<span class="bp-pin">📌 Pinned</span>':'')+'<span class="bp-st '+(o.ok?'ok':'pend')+'">'+(o.ok?'Approved':'Pending')+'</span></div></div>';
 }
+/* item 29: ONE rail for every zone. Beads on a vertical string on the RIGHT of the mother card
+   (newest / pinned at the top), +N / − when they do not fit, and a small RED DOT at the end of the
+   bar that copies the family's Co-WiKi list. One slot is kept for the dot, so the bar fits the card. */
+function ezRailHTML(o,ks,h,open){
+  const s=ezBeadSlots(ks.length,Math.max(BEAD_TOP+BEAD_STEP,h-BEAD_STEP),open),less=open&&ks.length>s.cap;
+  let html='';
+  ks.slice(0,s.show).forEach((k,i)=>{
+    html+='<button type="button" class="bead '+(k.ok?'ok':'pend')+(k.pinned?' pinned':'')+'" data-bead="'+esc(k._id)+'" style="top:'+(BEAD_TOP+i*BEAD_STEP-10)+'px" aria-label="'+esc('Co-WiKi: '+String(titleOf(k)||'card').slice(0,60)+' ('+(k.ok?'approved':'pending')+')')+'"></button>';
+  });
+  const y=BEAD_TOP+s.show*BEAD_STEP-12;
+  if(s.more)html+='<button type="button" class="bead-more" data-more="'+esc(o.cid)+'" style="top:'+y+'px" aria-label="'+esc('Show '+s.more+' more Co-WiKi cards')+'">+'+s.more+'</button>';
+  else if(less)html+='<button type="button" class="bead-more less" data-more="'+esc(o.cid)+'" style="top:'+y+'px" aria-label="Collapse">−</button>';
+  const dot=(s.more||less)?y+32:BEAD_TOP+s.show*BEAD_STEP-6;
+  const lbl='Copy this WiKi + '+ks.length+' co-wiki'+(ks.length===1?'':'s')+' to the clipboard';
+  html+='<button type="button" class="bead-copy" data-copy="'+esc(o.cid)+'" style="top:'+dot+'px" aria-label="'+esc(lbl)+'" title="'+esc(lbl)+'"></button>';
+  return {html,len:Math.max(h,dot+20),open};
+}
 function beadsPaint(wall){
   if(!wall)return;
   let L=wall.querySelector(':scope>.bead-layer');
@@ -3583,41 +3723,75 @@ function beadsPaint(wall){
     const ks=kids.get(String(o.cid))||[];if(!ks.length)return;   /* no string for 0 children */
     const left=(parseFloat(el.style.left)||0)+(parseFloat(el.style.width)||el.offsetWidth)+BEAD_GAP/2;
     const top=parseFloat(el.style.top)||0,h=parseFloat(el.style.height)||el.offsetHeight;
-    const open=BEAD_OPEN.has(String(o.cid)),s=ezBeadSlots(ks.length,h,open),less=open&&ks.length>s.cap;
-    const len=Math.max(h,BEAD_TOP+(s.show+(s.more||less?1:0))*BEAD_STEP);
-    html+='<div class="bead-rail'+(open?' open':'')+'" style="left:'+Math.round(left)+'px;top:'+Math.round(top)+'px;height:'+Math.round(len)+'px">';
-    ks.slice(0,s.show).forEach((k,i)=>{
-      html+='<button type="button" class="bead '+(k.ok?'ok':'pend')+(k.pinned?' pinned':'')+'" data-bead="'+esc(k._id)+'" style="top:'+(BEAD_TOP+i*BEAD_STEP-10)+'px" aria-label="'+esc('Co-WiKi: '+String(titleOf(k)||'card').slice(0,60)+' ('+(k.ok?'approved':'pending')+')')+'"></button>';
-    });
-    const y=BEAD_TOP+s.show*BEAD_STEP-12;
-    if(s.more)html+='<button type="button" class="bead-more" data-more="'+esc(o.cid)+'" style="top:'+y+'px" aria-label="'+esc('Show '+s.more+' more Co-WiKi cards')+'">+'+s.more+'</button>';
-    else if(less)html+='<button type="button" class="bead-more less" data-more="'+esc(o.cid)+'" style="top:'+y+'px" aria-label="Collapse">−</button>';
-    html+='</div>';
+    const r=ezRailHTML(o,ks,h,BEAD_OPEN.has(String(o.cid)));
+    html+='<div class="bead-rail'+(r.open?' open':'')+'" style="left:'+Math.round(left)+'px;top:'+Math.round(top)+'px;height:'+Math.round(r.len)+'px">'+r.html+'</div>';
   });
   L.innerHTML=html;
 }
-/* item 26: Beads view in the Topic / InfoMercial bands. The band is a one-row carousel, so a
-   family's beads sit as a short row along the bottom-left of the mother card instead of a rail
-   beside it. Same beads (ok / pend / pinned), same hover preview, click and +N / − as the rail. */
-const BAND_BEAD_MAX=8;
-function ezBandBeadsHTML(o,ks,open){
-  if(!o||!o.cid||!ks||!ks.length)return '';
-  const show=open?ks.length:Math.min(ks.length,BAND_BEAD_MAX),more=ks.length-show;
-  let h='';
-  ks.slice(0,show).forEach(k=>{h+='<button type="button" class="bead '+(k.ok?'ok':'pend')+(k.pinned?' pinned':'')+'" data-bead="'+esc(k._id)+'" aria-label="'+esc('Co-WiKi: '+String(titleOf(k)||'card').slice(0,60)+' ('+(k.ok?'approved':'pending')+')')+'"></button>';});
-  if(more>0)h+='<button type="button" class="bead-more" data-more="'+esc(o.cid)+'" aria-label="'+esc('Show '+more+' more Co-WiKi cards')+'">+'+more+'</button>';
-  else if(open&&ks.length>BAND_BEAD_MAX)h+='<button type="button" class="bead-more less" data-more="'+esc(o.cid)+'" aria-label="Collapse">−</button>';
-  return h;
-}
-function bandBeadsPaint(){
+/* item 29 (replaces the item 26 bottom-left row): Topic / InfoMercial use the same rail, placed in
+   the band track beside each card and sliding with it. The band grows when an open bar is taller. */
+function ezBandRailOn(items){
+  if(!BEADS||!items||!items.length)return false;
   const kids=ezBeadKids(window.__wallList||[]);
-  [ZA,ZC].forEach(B=>{if(!B||!B.els)return;B.els.forEach(el=>{
-    const o=el._o,ks=(BEADS&&o&&o.cid&&!ezIsChild(o))?(kids.get(String(o.cid))||[]):[];
-    let r=el.querySelector(':scope>.band-beads');
-    if(!ks.length){if(r)r.remove();return;}
-    if(!r){r=document.createElement('div');r.className='band-beads';el.appendChild(r);}
-    r.innerHTML=ezBandBeadsHTML(o,ks,BEAD_OPEN.has(String(o.cid)));
-  });});
+  return items.some(o=>o&&o.cid&&!ezIsChild(o)&&(kids.get(String(o.cid))||[]).length>0);
+}
+function bandRailsPaint(B,instant){
+  const sec=B&&document.getElementById(B.id);if(!sec)return;
+  const track=sec.querySelector('.za-track');if(!track)return;
+  const kids=(BEADS&&B.rail)?ezBeadKids(window.__wallList||[]):null,seen=new Set();
+  let need=B.h||0;
+  if(kids)B.items.forEach(o=>{
+    const el=B.els.get(o._id);if(!el||!o.cid||ezIsChild(o))return;
+    const ks=kids.get(String(o.cid))||[];if(!ks.length)return;
+    const cid=String(o.cid);seen.add(cid);
+    let rl=track.querySelector(':scope>.bead-rail[data-rail="'+(window.CSS&&CSS.escape?CSS.escape(cid):cid)+'"]');
+    if(!rl){rl=document.createElement('div');rl.className='bead-rail band-rail';rl.dataset.rail=cid;track.appendChild(rl);instant=true;}
+    const h=parseFloat(el.style.height)||el.offsetHeight,top=parseFloat(el.style.top)||0;
+    const r=ezRailHTML(o,ks,h,BEAD_OPEN.has(cid));
+    if(rl._h!==r.html){rl.innerHTML=r.html;rl._h=r.html;}
+    rl.classList.toggle('open',r.open);
+    const left=(parseFloat(el.style.left)||0)+(B.step-B.gap)+BEAD_GAP/2;
+    if(instant){rl.style.transition='none';rl.style.left=Math.round(left)+'px';void rl.offsetWidth;rl.style.transition='';}
+    else rl.style.left=Math.round(left)+'px';
+    rl.style.top=Math.round(top)+'px';rl.style.height=Math.round(r.len)+'px';
+    if(el._rel!=null&&el._rel<B.k)need=Math.max(need,top+r.len+4);
+  });
+  track.querySelectorAll(':scope>.bead-rail').forEach(rl=>{if(!seen.has(rl.dataset.rail))rl.remove();});
+  if(B.h)sec.style.height=Math.round(need)+'px';
+}
+function bandBeadsPaint(){[ZA,ZC].forEach(B=>{if(B&&B.els)bandRailsPaint(B,false);});}
+/* item 29: the red dot copies the family as EzSheet text: the MOTHER (WiKi) card on top, a line that is
+   only ===, then the Co-WiKi cards in the displayed order separated by lines that are only ---.
+   No Co-WiKi -> the mother only (no ===). Each card is its EzSheet source (the URL / text it was made
+   from). It copies what this viewer can see (approved + the pending cards the wall shows them). */
+const ezCardText=o=>String(o&&o._raw!=null?o._raw:'').trim();
+function ezFamilyCopyText(mother,ks){
+  const m=ezCardText(mother),kids=(ks||[]).map(ezCardText).filter(Boolean).join('\n---\n');
+  return kids?(m?m+'\n===\n':'')+kids:m;
+}
+function ezFamilyMother(cid){return (window.__wallList||[]).find(o=>o&&String(o.cid)===String(cid)&&!ezIsChild(o))||null;}
+function ezCopyText(t){
+  const legacy=()=>{try{const d=document,ta=d.createElement('textarea');ta.value=t;ta.setAttribute('readonly','');
+    ta.style.cssText='position:fixed;left:-9999px;top:0;opacity:0';d.body.appendChild(ta);ta.focus();ta.select();
+    try{ta.setSelectionRange(0,t.length);}catch(e){}
+    const ok=!!(d.execCommand&&d.execCommand('copy'));ta.remove();return ok;}catch(e){return false;}};
+  try{if(navigator.clipboard&&typeof navigator.clipboard.writeText==='function')
+    return navigator.clipboard.writeText(t).then(()=>true,()=>legacy());}catch(e){}
+  return Promise.resolve(legacy());
+}
+function ezCopyToast(anchor,msg,ok){
+  const t=document.createElement('div');t.className='bead-toast'+(ok?'':' err');
+  t.setAttribute('role','status');t.setAttribute('aria-live','polite');t.textContent=msg;document.body.appendChild(t);
+  const p=ezAnchorPopover(t,{anchor,dismiss:false,sheet:false,margin:8});
+  setTimeout(()=>{p.close(true);t.remove();},ok?1800:4000);
+  return t;
+}
+function ezCopyFamily(cid,dot){
+  const ks=ezBeadKids(window.__wallList||[]).get(String(cid))||[];
+  const n=ks.length,text=ezFamilyCopyText(ezFamilyMother(cid),ks);
+  return ezCopyText(text).then(ok=>{
+    ezCopyToast(dot,ok?'Copied WiKi + '+n+' co-wiki'+(n===1?'':'s'):'Could not copy: the browser blocked clipboard access. Allow clipboard permission for this site and try again.',ok);
+    return ok;});
 }
 /* item 22 + 27: the EZBar icon that used to be Fireworks is now ONLY the Cards/Beads switch (everyone).
    Click = switch for me (remembered per wall in this browser). Hold / right-click / ArrowDown = menu:
@@ -3653,9 +3827,10 @@ function ezAuthed(){
     .then(r=>r.ok?r.json():null).then(d=>!!(d&&d.authenticated&&d.user&&d.user.id)).catch(()=>false);
   return EZ_AUTH_P;
 }
-const EZ_BEAD_CSS='.band-beads{position:absolute;left:10px;bottom:10px;z-index:9;display:flex;flex-wrap:wrap;gap:6px;max-width:calc(100% - 130px);pointer-events:none}'
- +'.band-beads .bead,.band-beads .bead-more{pointer-events:auto;width:18px;height:18px;border-radius:50%;padding:0;cursor:pointer;box-sizing:border-box;transition:transform .15s,box-shadow .15s}'
- +'.band-beads .bead-more{width:auto;min-width:24px;padding:0 6px;border-radius:999px;background:#0f172a;color:#fff;border:2px solid #fff;font:800 10px/1 system-ui,sans-serif}'
+const EZ_BEAD_CSS='.za-track>.band-rail{z-index:6;pointer-events:none;transition:left .6s cubic-bezier(.2,.8,.2,1)}@media (prefers-reduced-motion:reduce){.za-track>.band-rail{transition:none}}'
+ +'.bead-rail .bead-copy{pointer-events:auto;position:absolute;left:-8px;width:16px;height:16px;border-radius:50%;padding:0;cursor:pointer;box-sizing:border-box;background:#ef4444;border:2.5px solid #fff;box-shadow:0 0 0 1.5px #b91c1c,0 2px 5px rgba(0,0,0,.25);transition:transform .15s}'
+ +'.bead-rail .bead-copy::after{content:"";position:absolute;inset:-7px;border-radius:50%}.bead-rail .bead-copy:hover,.bead-rail .bead-copy:focus-visible{transform:scale(1.3);outline:none;box-shadow:0 0 0 1.5px #b91c1c,0 0 0 6px rgba(239,68,68,.25)}'
+ +'.bead-toast{position:fixed;z-index:2147483000;background:#0f172a;color:#fff;font:700 12.5px/1.35 system-ui,sans-serif;padding:8px 12px;border-radius:10px;box-shadow:0 8px 22px rgba(0,0,0,.25);max-width:280px;pointer-events:none}.bead-toast.err{background:#b91c1c}'
  +'.bead-layer{position:absolute;left:0;top:0;width:0;height:0;z-index:6;pointer-events:none;transition:opacity .2s}body.shuffling .bead-layer,body.resizing .bead-layer{opacity:0}'
  +'.bead-rail{position:absolute;width:0;border-left:2px solid #cbd5e1;margin-left:-1px}.bead-rail.open{z-index:8}'
  +'.bead-rail .bead,.bead-rail .bead-more{pointer-events:auto;position:absolute;left:-10px;width:20px;height:20px;border-radius:50%;padding:0;cursor:pointer;box-sizing:border-box;transition:transform .15s,box-shadow .15s}'
@@ -3736,5 +3911,5 @@ window.WallCore={csrfHeaders:ezCsrfHeaders,ssoInfo:ezSsoInfo,EZ_CARD_CSS,EZ_SHY_
   saveWallSetting,
   I18N,t,colsText,setLangCode,getLang,applyI18n,langSelectHTML,menuHTML,updateLayoutUI,bindMenu,randomSize,
   shuffled,shuffleBtnHTML,reorderAnimated,
-  ezStripTags,ezParseSheet,ezSnapSig,ezHeightDamper,ezSheetIndex,ezSheetFilter,ezSheetMemory,ezRetag,ezRemoveCids,ezRevGate,ezCardFromServer,ezInheritZones,ezBandBeadsHTML,ezFamilies,ezShuffleFamilies,ezCanInsert,ezCanDelete,ezRowLayout,ezMineAdd,toolsHTML,ezBeadSlots,ezPopPos,ezAnchorBox,ezFullPos,ezVisibleView,ezAnchorPopover,ezBeadKids,ezBeadThumb,ezBeadCardHTML,beadsPaint,ezIsChild,ezCanPin,ezPlaceBox,ezViewKey,ezViewLocal,ezViewClearLocal,ezViewClearLocal,ezViewSaveLocal,ezViewEffective,ezViewMenuHTML,viewBtnHTML,ezReopenHint,ezTakeReopen,setBeadsFlag:on=>{BEADS=!!on;},isBeads:()=>BEADS};
+  ezStripTags,ezParseSheet,ezOwnerNow,ezWallMe,ezOnWallMe,ownerTokenOwn,ezAutoFollows,ezMeasureStep,ezUploadUrl,ezImgDims,ezImgTag,ezSnapSig,ezHeightDamper,ezSheetIndex,ezSheetFilter,ezSheetMemory,ezRetag,ezRemoveCids,ezRevGate,ezCardFromServer,ezInheritZones,ezFamilies,ezShuffleFamilies,ezCanInsert,ezCanDelete,ezRowLayout,ezMineAdd,toolsHTML,ezBeadSlots,ezRailHTML,ezBandRailOn,bandRailsPaint,ezFamilyCopyText,ezFamilyMother,ezCopyText,ezCopyFamily,ezCopyToast,ezPopPos,ezAnchorBox,ezFullPos,ezVisibleView,ezAnchorPopover,ezBeadKids,ezBeadThumb,ezBeadCardHTML,beadsPaint,ezIsChild,ezCanPin,ezPlaceBox,ezViewKey,ezViewLocal,ezViewClearLocal,ezViewClearLocal,ezViewSaveLocal,ezViewEffective,ezViewMenuHTML,viewBtnHTML,ezReopenHint,ezTakeReopen,setBeadsFlag:on=>{BEADS=!!on;},isBeads:()=>BEADS};
 })();

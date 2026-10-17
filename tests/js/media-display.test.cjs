@@ -38,7 +38,7 @@ for (const f of ['resources/js/components/EzSheetPreview.tsx', 'resources/js/com
   test('item15: ' + path.basename(f) + ' video blocks use preload=metadata + an Open video link, absolute URLs', () => {
     assert.match(src, /<video src="[^>]*preload="metadata"/);
     assert.match(src, /Open video ↗/);
-    assert.match(src, /location\.origin \+ url/);
+    assert.match(src, /ezUploadUrl\(url\)/); // item 35: absolute https (or relative on dev), never http://
   });
   test('item15: ' + path.basename(f) + ' only small images may fall back to an inline data: URL', () => {
     assert.match(src, /item\.kind === 'image' && item\.(file\.)?size <= 2 \* 1024 \* 1024/);

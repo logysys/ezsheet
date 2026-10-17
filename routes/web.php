@@ -172,6 +172,7 @@ Route::prefix('api/wall')->middleware(['web', 'throttle:120,1'])->group(function
     Route::get('{id}/settings', [\App\Http\Controllers\Api\WallController::class, 'getCards']);
     Route::post('{id}/push-to-wall', [\App\Http\Controllers\Api\WallController::class, 'pushToWall']);
     Route::get('{id}/sheet', [\App\Http\Controllers\Api\WallController::class, 'getSheet']);
+    Route::get('{id}/me', [\App\Http\Controllers\Api\WallController::class, 'wallMe'])->where('id', '(?!auth$)[^/]+');   // item 36
     Route::get('{id}/sheet/download', [\App\Http\Controllers\Api\WallController::class, 'downloadSheet']);
     Route::post('{id}/cards/{cid}/media', [\App\Http\Controllers\Api\WallController::class, 'uploadCowikiMedia'])->middleware('throttle:30,1'); // item 18
     Route::post('{id}/cards/{cid}/pin', [\App\Http\Controllers\Api\WallController::class, 'pin'])->middleware('throttle:60,1'); // item 19

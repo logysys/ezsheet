@@ -8,7 +8,8 @@ use Illuminate\Support\Facades\Auth;
 
 /**
  * EZ-REL-20261016-3 — "logout everywhere".
- * users.session_epoch is raised on logout (and by POST /auth/logout-everywhere).
+ * users.session_epoch is raised by POST /auth/logout-everywhere ("Sign out everywhere"), and by an ordinary
+ * logout only when SSO_LOGOUT_EVERYWHERE=true (EZ-REL-20261017-3, item 36).
  * Every session remembers the epoch it was created with; an older session is
  * ended on its next request, on every host and every device.
  */

@@ -25,7 +25,8 @@ test('success: Saved, with a count and the zones (en / zh-TW / zh-CN)', () => {
   assert.match(F.ezPushFeedback(200, { cards, not_added: [{}] }, 'en').lines[1], /1 not added/);
 });
 test('errors in plain words: 403, 419, 422, timeout/network, 5xx, busy', () => {
-  assert.match(F.ezPushFeedback(403, { error: 'forbidden' }, 'en').text, /Only the wall owner/);
+  assert.match(F.ezPushFeedback(403, { error: 'forbidden' }, 'en').text, /doesn't recognise you as the owner, so nothing was sent/);   // item 36: the old local refusal code
+  assert.match(F.ezPushFeedback(403, { error: 'Unauthorized: Only the wall owner can push updates to this wall.' }, 'en').text, /Only the wall owner/);   // old server, no code
   assert.match(F.ezPushFeedback(403, {}, 'zh-TW').text, /只有牆的擁有者/);
   assert.match(F.ezPushFeedback(419, {}, 'en').text, /session expired.*refresh/i);
   assert.match(F.ezPushFeedback(419, {}, 'zh-TW').text, /重新整理/);
@@ -52,7 +53,7 @@ test('parent page: AbortController 30 s, one push per wall, feedback shown on th
   assert.match(AIS, /from '@\/components\/push-feedback\.js'/);
   assert.match(AIS, /new AbortController\(\)/);
   assert.match(AIS, /setTimeout\(\(\) => ctl\.abort\(\), EZ_PUSH_TIMEOUT_MS\)/);
-  assert.match(AIS, /\{ signal: ctl\.signal, timeout: EZ_PUSH_TIMEOUT_MS \}/);
+  assert.match(AIS, /signal: ctl\.signal, timeout: EZ_PUSH_TIMEOUT_MS,/);   // item 36: + owner-key header
   assert.match(AIS, /if \(pushInFlightRef\.current\[wallId\]\)/);
   assert.match(AIS, /delete pushInFlightRef\.current\[wallId\]/);
   assert.match(AIS, /showPushFeedback\(status, body, lang\)/);

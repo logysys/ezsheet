@@ -72,43 +72,122 @@ class WallController extends Controller
 
     private function isOwner(Wall $w, Request $r): bool
     {
-        $user = \Illuminate\Support\Facades\Auth::user() ?? $r->user();
+        return $this->ownerStatus($w, $r)['ok'];
+    }
+
+    /**
+     * item 36 (EZ-REL-20261017-3): is this request the wall owner, and if not, why.
+     * Returns ['ok' => bool, 'code' => null|'signed_out'|'cross_origin'|'not_owner', 'user' => ?User, 'via' => null|'session'|'token'].
+     * - A signed-in user owns the wall only when the wall's meta.user_id, the message the wall belongs to
+     *   (meta.message_id, or a message whose slug / social_media_metadata.wall_id is the wall slug) is theirs.
+     *   A wall without owner_hash NO LONGER makes every signed-in user its owner.
+     * - The owner key (x-wall-owner) still works on its own, checked against owner_hash.
+     */
+    private function ownerStatus(Wall $w, Request $r): array
+    {
+        $user = Auth::user() ?? $r->user();
+        $tok = (string) $r->header('x-wall-owner', '');
+        $tokOk = $w->owner_hash && $tok !== '' && hash_equals((string) $w->owner_hash, WallHasher::owner($tok));
         if ($user && !$this->sameSiteRequest($r)) {
-            $user = null;
+            return $tokOk ? ['ok' => true, 'code' => null, 'user' => null, 'via' => 'token']
+                          : ['ok' => false, 'code' => 'cross_origin', 'user' => $user, 'via' => null];
         }
-        if ($user) {
-            $userId = (int)$user->id;
-            $meta = is_string($w->meta) ? json_decode($w->meta, true) : (array) $w->meta;
-            if (isset($meta['user_id']) && (int)$meta['user_id'] === $userId) {
-                return true;
-            }
-            $search = \App\Models\AISearchHistory::where('slug', $w->slug)
-                ->orWhere('conversation_id', $w->slug)
-                ->orWhere('id', $w->slug)
-                ->orWhere('social_media_metadata->wall_id', $w->slug)
-                ->first();
-            if ($search && (int)$search->user_id === $userId) {
-                return true;
-            }
-            $reqSlug = $r->input('slug') ?: $r->header('x-wall-slug');
-            if ($reqSlug) {
-                $searchBySlug = \App\Models\AISearchHistory::where('slug', $reqSlug)
-                    ->orWhere('conversation_id', $reqSlug)
-                    ->first();
-                if ($searchBySlug && (int)$searchBySlug->user_id === $userId) {
-                    return true;
+        if ($user && $this->userOwnsWall($w, (int) $user->id, $r)) {
+            return ['ok' => true, 'code' => null, 'user' => $user, 'via' => 'session'];
+        }
+        if ($tokOk) {
+            return ['ok' => true, 'code' => null, 'user' => $user, 'via' => 'token'];
+        }
+        return ['ok' => false, 'code' => $user ? 'not_owner' : 'signed_out', 'user' => $user, 'via' => null];
+    }
+
+    /** item 36: the user id the wall belongs to (meta.user_id, else the owner of its message), or null. */
+    private function wallOwnerId(Wall $w): ?int
+    {
+        $meta = is_string($w->meta) ? json_decode($w->meta, true) : (array) $w->meta;
+        if (!empty($meta['user_id'])) {
+            return (int) $meta['user_id'];
+        }
+        try {
+            if (!empty($meta['message_id'])) {
+                $m = AISearchHistory::find((int) $meta['message_id']);
+                if ($m && $m->user_id) {
+                    return (int) $m->user_id;
                 }
             }
-            if (empty($w->owner_hash)) {
-                return true;
+            $slug = (string) $w->slug;
+            $m = AISearchHistory::where('slug', $slug)
+                ->orWhere('conversation_id', $slug)
+                ->when(ctype_digit($slug), fn ($q) => $q->orWhere('id', (int) $slug))   // numeric slug = message id (as before; never 'W…' = 0)
+                ->orWhere('social_media_metadata->wall_id', $slug)
+                ->first();
+            if ($m && $m->user_id) {
+                return (int) $m->user_id;
             }
+        } catch (\Throwable $e) {
+            Log::warning('wallOwnerId lookup failed', ['wall' => $w->slug, 'e' => $e->getMessage()]);
         }
+        return null;
+    }
 
-        $tok = (string) $r->header('x-wall-owner', '');
-        if (!$w->owner_hash || $tok === '') {
+    private function userOwnsWall(Wall $w, int $userId, Request $r): bool
+    {
+        $owner = $this->wallOwnerId($w);
+        if ($owner !== null) {
+            return $owner === $userId;
+        }
+        /* A wall with no owner at all (legacy / created on first push): it may be claimed by the owner of
+           the message that names THIS wall (social_media_metadata.wall_id), sent as slug / x-wall-slug.
+           A message that names another wall (or none) proves nothing. The claim is stored on push. */
+        $reqSlug = (string) ($r->input('slug') ?: $r->header('x-wall-slug', ''));
+        if ($reqSlug === '') {
             return false;
         }
-        return hash_equals($w->owner_hash, WallHasher::owner($tok));
+        try {
+            $m = AISearchHistory::where('slug', $reqSlug)->orWhere('conversation_id', $reqSlug)->first();
+        } catch (\Throwable $e) {
+            return false;
+        }
+        if (!$m || (int) $m->user_id !== $userId) {
+            return false;
+        }
+        $smm = $m->social_media_metadata ?? null;
+        $smm = is_string($smm) ? json_decode($smm, true) : (array) $smm;
+        return isset($smm['wall_id']) && (string) $smm['wall_id'] === (string) $w->slug;
+    }
+
+    /** item 36: JSON refusal with its own status: 401 signed_out, 403 cross_origin, 403 not_owner. */
+    private function ownerRefusal(array $st, string $what = 'push to this wall')
+    {
+        if ($st['code'] === 'signed_out') {
+            return response()->json(['success' => false, 'error' => 'signed_out',
+                'message' => "You're signed out on this site. Sign in again, then $what."], 401);
+        }
+        if ($st['code'] === 'cross_origin') {
+            return response()->json(['success' => false, 'error' => 'cross_origin',
+                'message' => "Blocked: this page's address doesn't match the wall's site. Reload the page and try again."], 403);
+        }
+        $email = $st['user'] ? AISearchHistory::maskEmail((string) $st['user']->email) : null;
+        return response()->json(['success' => false, 'error' => 'not_owner', 'signed_in_as' => $email,
+            'message' => 'This wall belongs to another account.' . ($email ? " You're signed in as $email." : '')], 403);
+    }
+
+    /** item 36: GET /api/wall/{id}/me: who am I on THIS host, and do I own this wall. Read-only. */
+    public function wallMe(Request $r, string $id)
+    {
+        $user = Auth::user() ?? $r->user();
+        $wall = $this->wall($id, false);
+        $st = $wall ? $this->ownerStatus($wall, $r) : ['ok' => false, 'code' => $user ? 'not_owner' : 'signed_out', 'via' => null];
+        return response()->json([
+            'authenticated' => (bool) $user,
+            'user'          => $user ? ['id' => (int) $user->id, 'name' => (string) $user->name,
+                                        'email' => AISearchHistory::maskEmail((string) $user->email)] : null,
+            'is_owner'      => (bool) $st['ok'],
+            'via'           => $st['via'] ?? null,
+            'reason'        => $st['ok'] ? null : $st['code'],
+            'wall'          => $wall ? (string) $wall->slug : null,
+            'host'          => $r->getHost(),
+        ])->header('Cache-Control', 'no-store, private');
     }
 
     /** EZ-REL-20261016-3: strict same-ORIGIN for state-changing requests.
@@ -1094,11 +1173,18 @@ class WallController extends Controller
         $targetId = $r->input('wall_id') ?: $id;
         $wall = $this->wall((string) $targetId);
 
-        if (!$this->isOwner($wall, $r)) {
-            return response()->json([
-                'success' => false,
-                'error'   => 'Unauthorized: Only the wall owner can push updates to this wall.',
-            ], 403);
+        $own = $this->ownerStatus($wall, $r);
+        if (!$own['ok']) {
+            return $this->ownerRefusal($own);   // item 36: 401 signed_out / 403 cross_origin / 403 not_owner
+        }
+        /* item 36: a wall without an owner record is bound to the signed-in owner on its first push */
+        if ($own['via'] === 'session' && $own['user']) {
+            $meta = is_string($wall->meta) ? json_decode($wall->meta, true) : (array) $wall->meta;
+            if (empty($meta['user_id'])) {
+                $meta['user_id'] = (int) $own['user']->id;
+                $wall->meta = $meta;
+                $wall->save();
+            }
         }
 
         $items = $r->input('items', $r->input('cards', []));

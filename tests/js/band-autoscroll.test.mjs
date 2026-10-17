@@ -16,8 +16,8 @@ function env({reduce=false}={}){
   const document={hidden:false,body:mk(),documentElement:{clientWidth:1200,addEventListener:on('html')},addEventListener:on('doc'),getElementById:i=>i==='zoneA'?sec:null};
   const window={matchMedia:()=>({matches:reduce,addEventListener(){}})};
   const before={insertAdjacentHTML(){}};let made=0;
-  const api=new Function('setInterval','clearInterval','document','window','matchMedia','addEventListener','dispatchEvent','Event','GAP','fitH','applySize','foldSync','makeCard','dropCard','mountQ','pump',
-    code+';return {ZA,bandInit,bandUpdate};')(setInterval,clearInterval,document,window,window.matchMedia,()=>{},()=>{},function(){},12,()=>200,()=>{},()=>{},()=>{made++;return mk();},()=>{},{add(){}},()=>{});
+  const api=new Function('setInterval','clearInterval','document','window','matchMedia','addEventListener','dispatchEvent','Event','GAP','fitH','applySize','foldSync','makeCard','dropCard','mountQ','pump','ezBandRailOn','bandRailsPaint','BEAD_GAP','BEAD_RAIL',
+    code+';return {ZA,bandInit,bandUpdate};')(setInterval,clearInterval,document,window,window.matchMedia,()=>{},()=>{},function(){},12,()=>200,()=>{},()=>{},()=>{made++;return mk();},()=>{},{add(){}},()=>{},()=>false,()=>{},44,34);
   // bandInit returns early if the section exists; make the first lookup miss
   let first=true;const g=document.getElementById;document.getElementById=i=>{if(first){first=false;return null;}return g(i);};
   api.bandInit(api.ZA,before,'');

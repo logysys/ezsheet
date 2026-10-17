@@ -236,11 +236,20 @@ class SsoHandoffTest extends TestCase
         $this->assertGuest();
     }
 
-    public function test_logging_out_raises_the_epoch(): void
+    public function test_plain_logout_ends_only_this_session_sign_out_everywhere_raises_the_epoch(): void
     {
+        // item 36 (EZ-REL-20261017-3): an ordinary logout no longer signs out everywhere
+        $this->assertFalse((bool) config('fleet.logout_everywhere'), 'default is false (config/fleet.php)');
         $this->actingAs($this->u);
         Auth::guard('web')->logout();
-        $this->assertSame(1, (int) $this->u->fresh()->session_epoch);
+        $this->assertSame(0, (int) $this->u->fresh()->session_epoch, 'plain logout: other sessions stay');
+        // ... unless SSO_LOGOUT_EVERYWHERE=true forces the old behaviour
+        config(['fleet.logout_everywhere' => true]);
+        $this->actingAs($this->u->fresh());
+        Auth::guard('web')->logout();
+        $this->assertSame(1, (int) $this->u->fresh()->session_epoch, 'forced: plain logout = everywhere');
+        config(['fleet.logout_everywhere' => false]);
+        // the explicit "Sign out everywhere" action always raises it
         $h = $this->csrf();
         $this->on('ez.wiki')->actingAs($this->u->fresh())->postJson('/auth/logout-everywhere', [], $h)->assertOk();
         $this->assertGreaterThanOrEqual(2, (int) $this->u->fresh()->session_epoch);

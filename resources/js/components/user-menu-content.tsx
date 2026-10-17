@@ -40,6 +40,13 @@ export function UserMenuContent({ user }: UserMenuContentProps) {
                     Log out
                 </Link>
             </DropdownMenuItem>
+            {/* item 36: "Log out" ends only this session; this ends every session on every site and device */}
+            <DropdownMenuItem asChild>
+                <Link className="block w-full" method="post" href="/auth/logout-everywhere" as="button" onClick={handleLogout} data-testid="logout-everywhere">
+                    <LogOut className="mr-2" />
+                    Sign out everywhere
+                </Link>
+            </DropdownMenuItem>
         </>
     );
 }

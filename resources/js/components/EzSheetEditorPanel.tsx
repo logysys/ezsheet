@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { getEzSheetEditor } from './ezsheetEditor';
+import { ezImgDims, ezImgTag, ezUploadUrl } from './ezUpload';
 
 /* React host for the shared EzSheet editor (ezsheet-editor.js), the same editor as the wall
    EzBar panel: hint line, EzSheet / Images & 3D tabs, filter with === / ### chips, custom scroll
@@ -184,11 +185,14 @@ function DefaultMediaUploadPane({ onAddCards, onUploadingChange }: { onAddCards:
       return;
     }
 
-    const finishWithUrl = (url: string) => {
-      if (/^\/(?!\/)/.test(url)) url = location.origin + url; // item 15: absolute URL
+    // item 35: read the image's natural size now so the <img> tag can reserve its space
+    const dimsP = item.kind === 'image' ? ezImgDims(item.file) : null;
+    const finishWithUrl = (url: string, dims?: { w: number; h: number } | null) => {
+      if (dimsP && dims === undefined) { dimsP.then((d) => finishWithUrl(url, d)); return; }
+      url = ezUploadUrl(url); // item 15: absolute URL; item 35: https or relative, never http://
       let block = '';
       if (item.kind === 'image') {
-        block = `<img src="${url}" alt="${item.name}" style="max-width:100%;height:auto;display:block;border-radius:8px;margin:0 auto" />`;
+        block = ezImgTag(url, item.name, dims);
       } else if (item.kind === 'video') {
         block = `<video src="${url}" controls playsinline preload="metadata" style="max-width:100%;width:100%;display:block;border-radius:8px;background:#000"></video><div style="text-align:right;font:11px sans-serif;margin-top:4px"><a href="${url}" target="_blank" rel="noopener" style="color:#2563eb;text-decoration:none">Open video ↗</a></div>`;
       } else if (item.kind === 'audio') {
@@ -243,7 +247,7 @@ function DefaultMediaUploadPane({ onAddCards, onUploadingChange }: { onAddCards:
     xhr.timeout = 0;
 
     try {
-      const tok = localStorage.getItem('wall_owner');
+      const tok = localStorage.getItem('wall_owner:' + wallId) || localStorage.getItem('wall_owner'); // item 36: per-wall key first (the server checks it)
       if (tok) xhr.setRequestHeader('x-wall-owner', tok);
       const csrfMeta = document.querySelector('meta[name="csrf-token"]') as HTMLMetaElement | null;
       if (csrfMeta?.content) {

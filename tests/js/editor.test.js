@@ -18,9 +18,10 @@ function boot(fetchImpl) {
   const html = vm.runInNewContext(TPL, {
     title: 'T', EZSHEET_EDITOR_SCRIPT: EZED_SRC, getEzSheetEditor, WALL_CSS: '', ZDOG_SCRIPT: '', WALL_CORE_SCRIPT: CORE, editable: true, isOwner: true,
     json: JSON.stringify({ id: 'W0000057', list: [] }), spriteInit: '', resolvedAuth: { user: null }, parentOrigin: 'https://ez.test',
-    resolvedDomains: [], wallId: 'W0000057', slug: 'W0000057', messageId: 1, effectiveSyncUrl: 'https://ez.test', frameCheckUrl: '', metaUrl: '',
+    resolvedDomains: [], wallId: 'W0000057', slug: 'W0000057', funnel: '', messageId: 1, effectiveSyncUrl: 'https://ez.test', frameCheckUrl: '', metaUrl: '',
     payload: { id: 'W0000057', lang: 'en', cols: 0, car: false }, JSON,
     autoHeight: false, frameless: false, openEditor: false, wallAutoHeightReporter: function () {},
+    EZ_PUSH_TEXTS: require('./push-feedback-scope.cjs').EZ_PUSH_TEXTS, ezPushRefusalText: require('./push-feedback-scope.cjs').ezPushRefusalText,   /* item 36 */
   });
   const calls = [];
   const dom = new JSDOM(html, { runScripts: 'dangerously', url: 'https://ez.test/x', pretendToBeVisual: true,

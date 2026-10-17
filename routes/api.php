@@ -107,6 +107,7 @@ Route::middleware(['web'])->prefix('wall')->group(function () {
         Route::get   ('{id}/settings',            [WallController::class, 'getCards']);
         Route::post  ('{id}/push-to-wall',        [WallController::class, 'pushToWall']);
         Route::get   ('{id}/sheet',               [WallController::class, 'getSheet']);
+        Route::get   ('{id}/me',                  [WallController::class, 'wallMe'])->where('id', '(?!auth$)[^/]+');   // item 36: signed in? owner of this wall? (this host)
         Route::get   ('{id}/sheet/download',      [WallController::class, 'downloadSheet']);
         Route::post  ('{id}/media',               [WallController::class, 'uploadMedia'])->middleware('throttle:30,1');
         Route::post  ('upload-ezsheet-file',      [WallController::class, 'uploadEzsheetFile'])->middleware('throttle:30,1');

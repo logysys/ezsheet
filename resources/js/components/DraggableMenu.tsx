@@ -328,6 +328,8 @@ const DraggableMenu: React.FC<DraggableMenuProps> = ({
                 { href: '/ai/history', action: 'Slug Management', icon: faCode, label: 'Slug Management' },
                 { href: '/domains', action: 'Domain Management', icon: faLink, label: 'Domain Management' },
                 { href: '/logout', action: 'Logout', icon: faRightFromBracket, label: 'Logout', method: 'post', isDestructive: true },
+                // item 36: an ordinary Logout ends only this session; this one ends every session (all sites, all devices)
+                { href: '/auth/logout-everywhere', action: 'Sign out everywhere', icon: faRightFromBracket, label: 'Sign out everywhere', method: 'post', isDestructive: true },
             ],
         };
     }, [auth?.user, balanceLabel]);

@@ -18,11 +18,12 @@ const tpl = tsx.slice(a + 'const doc = '.length, b + '</html>`'.length);
 const AH = fs.readFileSync(path.join(root, 'resources/js/components/ezAutoHeight.mjs'), 'utf8');
 const AH_FN = AH.slice(AH.indexOf('function wallAutoHeightReporter'), AH.indexOf('\n}\n', AH.indexOf('function wallAutoHeightReporter')) + 2);
 const scope = {
-  title: 'T', EZSHEET_EDITOR_SCRIPT: EZED_SRC, getEzSheetEditor, WALL_CSS: '', ZDOG_SCRIPT: '', WALL_CORE_SCRIPT: '', editable: true, isOwner: true, json: '{}', spriteInit: '',
-  resolvedAuth: {}, parentOrigin: '', resolvedDomains: [], wallId: 'W0000057', slug: 'x', messageId: 1, effectiveSyncUrl: '',
+  title: 'T', EZSHEET_EDITOR_SCRIPT: EZED_SRC, getEzSheetEditor, WALL_CSS: '', ZDOG_SCRIPT: '', WALL_CORE_SCRIPT: fs.readFileSync(path.join(root, 'resources/js/components/wall-core.js'), 'utf8'),   /* EZ-REL-20261017-1: check the embedded wall-core too */ editable: true, isOwner: true, json: '{}', spriteInit: '',
+  resolvedAuth: {}, parentOrigin: '', resolvedDomains: [], wallId: 'W0000057', slug: 'x',funnel: '', messageId: 1, effectiveSyncUrl: '',
   frameCheckUrl: '', metaUrl: '', payload: { id: 'W0000057', lang: 'en', cols: 0, car: false, zones: null, zorder: null }, JSON,
   /* item 10: syntax-check the injected auto-height reporter too */
   autoHeight: true, frameless: true, openEditor: false, wallAutoHeightReporter: { toString: () => AH_FN },
+    EZ_PUSH_TEXTS: require('./push-feedback-scope.cjs').EZ_PUSH_TEXTS, ezPushRefusalText: require('./push-feedback-scope.cjs').ezPushRefusalText,   /* item 36 */
 };
 const html = vm.runInNewContext(tpl, scope);
 const scripts = [...html.matchAll(/<script>([\s\S]*?)<\/script>/g)].map(m => m[1]);

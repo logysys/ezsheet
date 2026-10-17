@@ -10,6 +10,11 @@ const M = {
     created: '+{n} new', updated: '{n} changed', deleted: '{n} removed',
     notAdded: '{n} not added (the same link is already a Co-WiKi card)',
     owner: 'Only the wall owner can push to this wall. Are you signed in with the account that owns it?',
+    signedOut: "You're signed out on this site. Your session may have ended because you signed out somewhere else. Sign in again, then push.",
+    notOwner: 'This wall belongs to another account. Sign in with the account that owns it.',
+    notOwnerAs: "This wall belongs to another account. You're signed in as {email}. Sign in with the account that owns it.",
+    crossOrigin: "Push blocked: this page's address doesn't match the wall's site. Reload the page and try again.",
+    clientRefused: "This page doesn't recognise you as the owner, so nothing was sent. Reload the page; if it still happens, sign in with the owner's account.",
     expired: 'Your session expired. Please refresh the page and push again.',
     problems: 'Nothing was saved:',
     locked: 'WiKi cards with Co-WiKi cards must stay in the Content zone: {list}',
@@ -28,6 +33,11 @@ const M = {
     created: '新增 {n}', updated: '修改 {n}', deleted: '移除 {n}',
     notAdded: '{n} 張沒有加入（同樣的連結已是 Co-WiKi 卡）',
     owner: '只有牆的擁有者可以推送。請確認登入的是擁有這面牆的帳號。',
+    signedOut: '你在這個網站已經登出（可能是在別處登出了）。請重新登入後再推送。',
+    notOwner: '這面牆屬於另一個帳號。請用擁有這面牆的帳號登入。',
+    notOwnerAs: '這面牆屬於另一個帳號。你目前登入的是 {email}。請用擁有這面牆的帳號登入。',
+    crossOrigin: '推送被擋下：這個頁面的網址和牆的網站不一致。請重新整理頁面後再試一次。',
+    clientRefused: '這個頁面沒有把你認作擁有者，所以沒有送出任何內容。請重新整理頁面；若仍發生，請用擁有者的帳號登入。',
     expired: '登入已逾時，請重新整理頁面後再推送一次。',
     problems: '沒有儲存任何內容：',
     locked: '有 Co-WiKi 卡的 WiKi 卡必須留在內容區：{list}',
@@ -46,6 +56,11 @@ const M = {
     created: '新增 {n}', updated: '修改 {n}', deleted: '移除 {n}',
     notAdded: '{n} 张没有加入（同样的链接已是 Co-WiKi 卡）',
     owner: '只有墙的拥有者可以推送。请确认登录的是拥有这面墙的账号。',
+    signedOut: '你在这个网站已经退出登录（可能是在别处退出了）。请重新登录后再推送。',
+    notOwner: '这面墙属于另一个账号。请用拥有这面墙的账号登录。',
+    notOwnerAs: '这面墙属于另一个账号。你当前登录的是 {email}。请用拥有这面墙的账号登录。',
+    crossOrigin: '推送被拦下：这个页面的网址和墙的网站不一致。请刷新页面后再试一次。',
+    clientRefused: '这个页面没有把你识别为拥有者，所以没有发送任何内容。请刷新页面；如果仍然发生，请用拥有者的账号登录。',
     expired: '登录已过期，请刷新页面后再推送一次。',
     problems: '没有保存任何内容：',
     locked: '有 Co-WiKi 卡的 WiKi 卡必须留在内容区：{list}',
@@ -58,6 +73,31 @@ const M = {
     failed: '推送失败（{s}）。',
   },
 };
+
+/** item 36: the texts, shared with the EzSheet editor frame (EzSheetPreview injects them). */
+export const EZ_PUSH_TEXTS = M;
+
+/** item 36 (EZ-REL-20261017-3): the refusal text for a push, or '' when it isn't a refusal.
+ *  SELF-CONTAINED on purpose (no outside names): EzSheetPreview injects ezPushRefusalText.toString()
+ *  into the editor frame, so the frame toast and this page show the SAME words.
+ *  401 / signed_out, 403 cross_origin, 403 not_owner (+ signed_in_as), client_refused (nothing was sent),
+ *  any other 403 (old server) -> the old owner text. 419 is handled separately and is unchanged. */
+export function ezPushRefusalText(status, data, lang, texts) {
+  var d = data && typeof data === 'object' ? data : {};
+  var tx = texts && texts.en ? texts : { en: {} };
+  var s = String(lang || '').replace('_', '-').toLowerCase();
+  var L = /^zh-(tw|hk|mo|hant)/.test(s) ? 'zh-TW' : /^zh/.test(s) ? 'zh-CN' : 'en';
+  var get = function (k, v) {
+    var t = (tx[L] && tx[L][k]) || tx.en[k] || k;
+    return v ? t.replace(/\{(\w+)\}/g, function (_, x) { return v[x] != null ? String(v[x]) : ''; }) : t;
+  };
+  if (d.error === 'client_refused' || d.error === 'forbidden') return get('clientRefused');
+  if (status === 401 || d.error === 'signed_out') return get('signedOut');
+  if (status !== 403) return '';
+  if (d.error === 'cross_origin') return get('crossOrigin');
+  if (d.error === 'not_owner') return d.signed_in_as ? get('notOwnerAs', { email: d.signed_in_as }) : get('notOwner');
+  return get('owner');
+}
 
 /** 'zh-TW' | 'zh-CN' | 'en' from any language tag (zh-Hant, zh_TW, zh-HK -> zh-TW; zh, zh-Hans -> zh-CN). */
 export function ezPushLang(l) {
@@ -99,7 +139,8 @@ export function ezPushFeedback(status, data, lang) {
   }
   if (status === 0 || d.error === 'timeout' || d.error === 'network') return { ok: false, text: T('timeout'), lines: [] };
   if (d.error === 'busy') return { ok: false, text: T('busy'), lines: [] };
-  if (status === 401 || status === 403) return { ok: false, text: T('owner'), lines: [] };
+  const refused = ezPushRefusalText(status, d, lang, M);   // item 36: one text per refusal reason
+  if (refused) return { ok: false, text: refused, lines: [] };
   if (status === 419) return { ok: false, text: T('expired'), lines: [] };
   if (status === 404) return { ok: false, text: T('notFound'), lines: [] };
   if (status === 413) return { ok: false, text: T('tooBig'), lines: [] };

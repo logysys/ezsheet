@@ -30,7 +30,7 @@ test('body{overflow:hidden} in card content no longer blocks scrolling', () => {
 });
 test('height reporting unchanged', () => {
   assert.ok(line.includes('d.scrollHeight>d.clientHeight+1?d.scrollHeight:0'));
-  assert.deepEqual(run('visible', 'hidden').msgs.at(-1), {__wallH: 809});
+  assert.deepEqual(run('visible', 'hidden').msgs.at(-1), {__wallH: 809, __wallImgs: 0}); // item 35: + loaded-image count
 });
 test('card scrolls on __wallScroll only from its parent', () => {
   const r = run('visible', 'hidden');

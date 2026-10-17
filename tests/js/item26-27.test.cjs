@@ -46,16 +46,16 @@ test('item 26: children take their mother zone; shuffle still moves Content only
     assert.deepEqual(r.slice(-2), ['C', 'c1']);
   }
 });
-test('item 26: Beads view draws a bead row on band mother cards (pending / approved / pinned, +N)', () => {
+test('item 26 -> 29: band mother cards use the same right-hand rail as Content (pending / approved / pinned, +N, red dot)', () => {
   const { WC } = boot();
   const ks = Array.from({ length: 10 }, (_, i) => ({ _id: 'k' + i, cid: 'k' + i, role: 'child', ok: i % 2 === 0, pinned: i === 0, content: 'kid ' + i }));
-  const h = WC.ezBandBeadsHTML({ cid: 'T', zone: 'a' }, ks, false);
-  assert.equal((h.match(/class="bead /g) || []).length, 8);
-  assert.match(h, /class="bead ok pinned"/);
-  assert.match(h, /class="bead pend"/);
-  assert.match(h, /data-more="T"[^>]*>\+2</);
-  assert.equal((WC.ezBandBeadsHTML({ cid: 'T' }, ks, true).match(/class="bead /g) || []).length, 10);
-  assert.equal(WC.ezBandBeadsHTML({ cid: 'T' }, [], false), '');
+  const r = WC.ezRailHTML({ cid: 'T', zone: 'a' }, ks, 200, false);
+  assert.match(r.html, /class="bead ok pinned"/);
+  assert.match(r.html, /class="bead pend"/);
+  assert.match(r.html, /data-more="T"[^>]*>\+\d+</);
+  assert.match(r.html, /class="bead-copy" data-copy="T"/);
+  assert.equal((WC.ezRailHTML({ cid: 'T' }, ks, 200, true).html.match(/class="bead /g) || []).length, 10);
+  assert.doesNotMatch(CORE, /band-beads|ezBandBeadsHTML/);
   assert.match(CORE, /\['wall','zoneA','zoneC'\]\.forEach\(function bindBeads/);
 });
 test('item 26: server has no zone lock for Co-WiKi any more', () => {

@@ -27,8 +27,11 @@ return [
     // Handoff token lifetime (seconds). Do not raise above 120.
     'handoff_ttl' => (int) env('SSO_HANDOFF_TTL', 60),
 
-    // Logging out on any host ends every session of that user (all hosts, all devices).
-    'logout_everywhere' => (bool) env('SSO_LOGOUT_EVERYWHERE', true),
+    // EZ-REL-20261017-3 (item 36, Roy's decision): an ordinary "Log out" ends ONLY this session.
+    // Every session of the user (all hosts, all devices) ends only via the explicit "Sign out everywhere"
+    // action (POST /auth/logout-everywhere). Set SSO_LOGOUT_EVERYWHERE=true to force the old behaviour
+    // (every ordinary logout also signs out everywhere).
+    'logout_everywhere' => (bool) env('SSO_LOGOUT_EVERYWHERE', false),
 
     // CSRF check on session/owner/upload/sign-in routes (StrictCsrfForSessionRoutes). Emergency switch only.
     'csrf_strict' => (bool) env('FLEET_CSRF_STRICT', true),

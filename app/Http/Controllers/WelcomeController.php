@@ -141,10 +141,16 @@ class WelcomeController extends Controller
      public function index()
     {
 		$fullDomain = idn_to_utf8(request()->getHost());
-		$type = Frontpage::select('frontpages.*')
+		// EZ-REL-20261017-1 item 31: www.<domain> uses the <domain> front page, and a host
+		// without a front page row falls back to ez.wiki's instead of a 500 (null ->type).
+		if (stripos($fullDomain, 'www.') === 0) $fullDomain = substr($fullDomain, 4);
+		$fp = fn ($d) => Frontpage::select('frontpages.*')
 				->join('admindomains', 'frontpages.domain_id', '=', 'admindomains.id')
-				->where('admindomains.domain', $fullDomain)
+				->where('admindomains.domain', $d)
 				->first();
+		$type = $fp($fullDomain);
+		if (!$type && $fullDomain !== 'ez.wiki') { $fullDomain = 'ez.wiki'; $type = $fp($fullDomain); }
+		if (!$type) abort(404);
 		if($type->type=='AISEARCH'){
 		$top = Aiframe::where('aiframes.type','TOP')->where('aiframes.status',1)
                 ->join('admindomains', 'aiframes.domain_id', '=', 'admindomains.id')
@@ -1049,7 +1055,7 @@ class WelcomeController extends Controller
                     'user' => $search->user ? [
                         'id' => $search->user->id,
                         'name' => $search->user->name,
-                        'email' => $search->user->email,
+                        'email' => \App\Models\AISearchHistory::maskEmail($search->user->email),   // item 36: public page, never the raw owner email
                     ] : null,
 					'landing_page_url' => $search->landing_page_url ?? null,
                     'status' => $search->status,
@@ -1171,7 +1177,7 @@ class WelcomeController extends Controller
                 'user' => $search->user ? [
                     'id' => $search->user->id,
                     'name' => $search->user->name,
-                    'email' => $search->user->email,
+                    'email' => \App\Models\AISearchHistory::maskEmail($search->user->email),   // item 36: public page, never the raw owner email
                 ] : null,
             ],
             'conversation_messages' => $formattedMessages,
@@ -3729,7 +3735,7 @@ public function storelikedislike(Request $request)
                     'user' => $search->user ? [
                         'id' => $search->user->id,
                         'name' => $search->user->name,
-                        'email' => $search->user->email,
+                        'email' => \App\Models\AISearchHistory::maskEmail($search->user->email),   // item 36: public page, never the raw owner email
                     ] : null,
                     'status' => $search->status,
 					'landing_page_url' => $search->landing_page_url ?? null,
@@ -3852,7 +3858,7 @@ public function storelikedislike(Request $request)
                 'user' => $search->user ? [
                     'id' => $search->user->id,
                     'name' => $search->user->name,
-                    'email' => $search->user->email,
+                    'email' => \App\Models\AISearchHistory::maskEmail($search->user->email),   // item 36: public page, never the raw owner email
                 ] : null,
             ],
             'conversation_messages' => $formattedMessages,

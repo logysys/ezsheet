@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState, useMemo } from 'react';
 import WALL_CORE_SCRIPT from './wall-core.js?raw';
 import { EZSHEET_EDITOR_SCRIPT, getEzSheetEditor } from './ezsheetEditor';
 import { wallAutoHeightReporter, createWallHeightDamper } from './ezAutoHeight.mjs';
+import { EZ_PUSH_TEXTS, ezPushRefusalText } from './push-feedback.js';
 import ZDOG_SCRIPT from 'zdog/dist/zdog.dist.min.js?raw';
 
 /* ============================================================
@@ -996,6 +997,9 @@ ${getEzSheetEditor().html({ ids: true, i18n: true, btnClass: 'tool-btn', pushCla
 <script>
 window.auth = ${JSON.stringify(resolvedAuth)};
 window.isOwner = ${JSON.stringify(!!isOwner)};
+/* item 36: the same refusal texts as the page (push-feedback.js) */
+window.EZ_PUSH_TEXTS = ${JSON.stringify(EZ_PUSH_TEXTS).replace(/</g, '\\u003c')};
+window.ezPushRefusalText = ${ezPushRefusalText.toString()};
 window.WALL_ORIGIN = ${JSON.stringify(parentOrigin)};
 window.WALL_DOMAINS = ${JSON.stringify(resolvedDomains)};
 window.WALL_ID = ${JSON.stringify(wallId)};
@@ -1387,8 +1391,34 @@ function pushBtnBusy(on){
   btn.disabled = !!on; btn.classList.toggle('busy', !!on);
   if(on) btn.setAttribute('aria-busy', 'true'); else btn.removeAttribute('aria-busy');
 }
+/* item 36: refusal text (shared with the page) and the sign-in sheet */
+function ezRefusal(status, data){
+  try { return window.ezPushRefusalText ? window.ezPushRefusalText(status, data, (WallCore.getLang && WallCore.getLang()) || document.documentElement.lang || navigator.language, window.EZ_PUSH_TEXTS) : ''; } catch(e){ return ''; }
+}
+function ezAskSignIn(){
+  if(!window.WallCore || typeof WallCore.signIn !== 'function') return;
+  var b = $('btnPush'), at = null;
+  if(b){ var r = b.getBoundingClientRect(); at = { x: r.left + r.width / 2, y: r.top }; }
+  WallCore.signIn(at, 'Sign in to push').then(function(ok){ if(ok && WallCore.ezWallMe) WallCore.ezWallMe(true); });
+}
+/* item 36: before each push, ask the server (GET /api/wall/<id>/me) whether this browser is signed in
+   and owns this wall on this host. Not signed in -> sign-in sheet; another account -> say so. Nothing is sent.
+   If the check itself fails (network), the push goes ahead and the server decides. */
 function sendPush(body){
   if(pushBusy){ toast(WallCore.t('pushBusy') !== 'pushBusy' ? WallCore.t('pushBusy') : 'A push is already running…'); return; }
+  if(WallCore.ezWallMe && !body.__meChecked){
+    pushBusy = true; pushBtnBusy(true);
+    WallCore.ezWallMe(true).then(function(me){
+      pushBusy = false; pushBtnBusy(false);
+      if(me && !me.is_owner){
+        if(!me.authenticated){ toast(ezRefusal(401, { error: 'signed_out' })); ezAskSignIn(); return; }
+        toast(ezRefusal(403, { error: 'not_owner', signed_in_as: me.user && me.user.email })); return;
+      }
+      body.__meChecked = true; body.__meOwner = !!(me && me.is_owner);
+      sendPush(body);
+    });
+    return;
+  }
   pushBusy = true; pushBtnBusy(true);
   var done = function(status, data){ pushBusy = false; pushBtnBusy(false); onPushResult(status, data || {}, body); };
   if(window.parent && window.parent !== window){
@@ -1403,7 +1433,9 @@ function sendPush(body){
         deleteCids: body.delete_cids || [], confirmEmpty: !!body.confirm_empty,
         addCowikiRaws: body.add_cowiki_raws || [],
         wallId: window.WALL_ID || 'ezsheet', slug: window.WALL_SLUG || window.WALL_ID, messageId: window.MESSAGE_ID || null,
-        lang: (WallCore.getLang && WallCore.getLang()) || ''
+        lang: (WallCore.getLang && WallCore.getLang()) || '',
+        meOwner: !!body.__meOwner,   /* item 36: the server just confirmed ownership (GET /me) */
+        ownerToken: (WallCore.ownerToken && WallCore.ownerToken()) || ''
       }, '*');
     }catch(e){ delete pushWait[rid]; done(0, { error: 'postMessage' }); }
     return;
@@ -1459,7 +1491,13 @@ function onPushResult(status, data, body){
     if(confirm(data.message || 'The sheet is empty. Delete every WiKi card and its Co-WiKi cards?')) sendPush({ raw: '', confirm_empty: 1 });
     return;
   }
-  if(status === 403){ toast('Only the wall owner can push to this wall.'); return; }
+  /* item 36: one text per refusal reason, the same words as the page (push-feedback.js); signed out -> sign-in sheet */
+  if(status === 401 || status === 403){
+    toast(ezRefusal(status, data) || 'Only the wall owner can push to this wall.');
+    if(status === 401 || (data && data.error === 'signed_out')) ezAskSignIn();
+    if(WallCore.ezWallMe) WallCore.ezWallMe(true);
+    return;
+  }
   /* item 28: plain words for the common failures (the parent page shows the same, in the UI language) */
   if(status === 419){ toast('Session expired. Please refresh the page and push again.'); return; }
   if(status === 409 && err === 'busy'){ toast('A push is already running. Please wait.'); return; }
@@ -1963,6 +2001,8 @@ try{
 }catch(e){}
 
 function startItemUpload(item){
+  // item 35: start reading the natural size now; finishWithUrl writes it into the <img>
+  if(item.kind === 'image' && item.file && WallCore.ezImgDims && !item.dimsP) item.dimsP = WallCore.ezImgDims(item.file);
   if(item.size > 100 * 1024 * 1024){
     item.status = 'error';
     item.error = 'File exceeds 100MB limit';
@@ -2004,13 +2044,21 @@ function startItemUpload(item){
   }
 
   var finishWithUrl = function(url, isFallback){
+    // item 35: wait (max 4 s) for the image's natural size so the <img> reserves its space
+    if(item.kind === 'image' && item.dimsP && !item.dimsDone){
+      item.dimsP.then(function(d){ item.dims = d; item.dimsDone = true; finishWithUrl(url, isFallback); });
+      return;
+    }
     // item 15: absolute URL so the block works in any frame, export or host
-    if(url.charAt(0) === '/' && url.charAt(1) !== '/') url = location.origin + url;
+    // item 35: ...stored as https (or relative on a dev host), never http://
+    if(WallCore.ezUploadUrl) url = WallCore.ezUploadUrl(url);
+    else if(url.charAt(0) === '/' && url.charAt(1) !== '/') url = location.origin + url;
     item.progress = 100;
     item.status = 'finished';
     var block = '';
     if(item.kind === 'image'){
-      block = '<img src="' + url + '" alt="' + WallCore.esc(item.name) + '" style="max-width:100%;height:auto;display:block;border-radius:8px;margin:0 auto" />';
+      block = WallCore.ezImgTag ? WallCore.ezImgTag(url, item.name, item.dims)
+        : '<img src="' + url + '" alt="' + WallCore.esc(item.name) + '" style="max-width:100%;height:auto;display:block;border-radius:8px;margin:0 auto" />';
     } else if(item.kind === 'video'){
       block = '<video src="' + url + '" controls playsinline preload="metadata" style="max-width:100%;width:100%;display:block;border-radius:8px;background:#000"></video>'
         + '<div style="text-align:right;font:11px sans-serif;margin-top:4px"><a href="' + url + '" target="_blank" rel="noopener" style="color:#2563eb;text-decoration:none">Open video ↗</a></div>';
@@ -2345,6 +2393,11 @@ window.addEventListener('message', function(e){
 });
 /* item 14: ?ezsheet=edit (the 'Edit on ez.wiki' link from a subdomain) opens the editor for the owner */
 if(window.isOwner){ var ezLoad = loadSheet(); if(window.EZ_OPEN_EDITOR) ezLoad.then(function(){ if(window.openPanel) window.openPanel(); }); }
+/* item 36: the server (GET /me) decides; load the sheet when it confirms ownership, close the editor when it doesn't */
+window.ezOnOwnerChange = function(ow){
+  if(ow && SHEET.plain === null) loadSheet();
+  if(!ow){ var p = $('panel'); if(p && !p.classList.contains('hidden') && typeof closePanel === 'function') closePanel(); }
+};
 </script>
 ${autoHeight ? '<script>(' + wallAutoHeightReporter.toString() + ')(window);</script>' : ''}
 </body>
@@ -2388,9 +2441,12 @@ ${autoHeight ? '<script>(' + wallAutoHeightReporter.toString() + ')(window);</sc
         const reply = (status: number, body: any) => {
           try { src.postMessage({ __ezsheetPushResult: true, requestId, status, data: body }, '*'); } catch (err) {}
         };
-        if (!isOwner) {
-          console.warn('[Security] Unauthorized push-to-wall rejected: caller is not the wall owner');
-          reply(403, { error: 'forbidden' });
+        // item 36: the frame asks the server (GET /api/wall/<id>/me) right before pushing; if the server
+        // confirmed ownership the push goes ahead even when this page's own flag is stale. Otherwise refuse
+        // here, WITHOUT sending, and say so ('client_refused'). The server still checks every push.
+        if (!isOwner && e.data.meOwner !== true) {
+          console.warn('[Security] push-to-wall not sent: this page does not see the caller as the wall owner');
+          reply(403, { error: 'client_refused' });
           return;
         }
         onPushToWallRef.current(e.data, reply);

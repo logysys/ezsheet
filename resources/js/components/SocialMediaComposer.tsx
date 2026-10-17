@@ -47,6 +47,7 @@ interface SocialMediaComposerProps {
   isEditMode?: boolean;
   contentFormat?: 'markdown' | 'html' | 'ezsheet'; // Added 'ezsheet'
   initialFormat?: 'markdown' | 'html' | 'ezsheet'; // Added 'ezsheet'
+  onCancel?: () => void; // EZ-REL-20261017-1 item 30: lets the page collapse the reply box again
 }
 
 const DEMO_EZSHEET_CARDS = `##############################
@@ -79,22 +80,14 @@ const SocialMediaComposer: React.FC<SocialMediaComposerProps> = ({
   isEditMode = false,
   contentFormat,
   initialFormat,
+  onCancel,
 }) => {
   const effectiveFormat = contentFormat || initialFormat || 'markdown';
 
   // State
-  const [content, setContent] = useState(() => {
-    if (initialContent) return initialContent;
-    if (effectiveFormat === 'ezsheet') return DEMO_EZSHEET_CARDS;
-    return '';
-  });
-
-  // When format switches to ezsheet and content is empty, prefill DEMO_EZSHEET_CARDS
-  useEffect(() => {
-    if (effectiveFormat === 'ezsheet' && !content.trim()) {
-      setContent(DEMO_EZSHEET_CARDS);
-    }
-  }, [effectiveFormat]);
+  // EZ-REL-20261017-1 item 30: never pre-fill the demo cards; a reply starts empty.
+  // (The "Insert 4 cards" button still inserts them on purpose.)
+  const [content, setContent] = useState(() => initialContent || '');
   const [mediaFiles, setMediaFiles] = useState<string[]>(initialMediaFiles);
   const [showCW, setShowCW] = useState(!!initialCW);
   const [cwText, setCwText] = useState(initialCW || '');
@@ -567,6 +560,7 @@ const SocialMediaComposer: React.FC<SocialMediaComposerProps> = ({
               onCancel={() => {
                 if (content.trim() && !window.confirm('Clear the EzSheet text?')) return;
                 setContent('');
+                onCancel?.();
               }}
               pushLabel={isSubmitting ? submittingText : `✓ ${buttonText}`}
               pushDisabled={(maxChars && isOverLimit) || (!content.trim() && mediaFiles.length === 0) || isSubmitting}
@@ -791,6 +785,20 @@ const SocialMediaComposer: React.FC<SocialMediaComposerProps> = ({
                 <div className="text-[10px] text-slate-400">No limit</div>
               )}
             </div>
+            {effectiveFormat !== 'ezsheet' && onCancel && (
+            <button
+              type="button"
+              data-testid="reply-cancel"
+              onClick={() => {
+                if (content.trim() && !window.confirm('Discard this reply?')) return;
+                setContent('');
+                onCancel();
+              }}
+              className="px-4 py-2.5 rounded-full font-bold text-slate-500 hover:text-slate-700 transition-colors"
+            >
+              Cancel
+            </button>
+            )}
             {effectiveFormat !== 'ezsheet' && (
             <button
               onClick={handlePost}
